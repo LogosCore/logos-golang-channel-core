@@ -2,6 +2,7 @@ package mgmtrpc
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	coreerrors "github.com/logoscore/logos-golang-channel-core/pkg/errors"
@@ -42,7 +43,7 @@ func (s *Server) CreateProfile(ctx context.Context, channelID string, p profile.
 	return s.ValidateAllProfiles(ctx, channelID)
 }
 
-func (s *Server) ReadProfile(ctx context.Context, channelID, profileID string) (profile.Profile, error) {
+func (s *Server) ReadProfile(ctx context.Context, channelID string, profileID int32) (profile.Profile, error) {
 	if err := s.ensureStore(); err != nil {
 		return profile.Profile{}, err
 	}
@@ -66,7 +67,7 @@ func (s *Server) UpdateProfile(ctx context.Context, channelID string, p profile.
 	return s.ValidateAllProfiles(ctx, channelID)
 }
 
-func (s *Server) DeleteProfile(ctx context.Context, channelID, profileID string) error {
+func (s *Server) DeleteProfile(ctx context.Context, channelID string, profileID int32) error {
 	if err := s.ensureStore(); err != nil {
 		return err
 	}
@@ -76,7 +77,7 @@ func (s *Server) DeleteProfile(ctx context.Context, channelID, profileID string)
 	return s.ValidateAllProfiles(ctx, channelID)
 }
 
-func (s *Server) ActivateProfile(ctx context.Context, channelID, profileID string) error {
+func (s *Server) ActivateProfile(ctx context.Context, channelID string, profileID int32) error {
 	if err := s.ensureStore(); err != nil {
 		return err
 	}
@@ -100,8 +101,45 @@ func (s *Server) ActivateProfile(ctx context.Context, channelID, profileID strin
 	return s.ValidateAllProfiles(ctx, channelID)
 }
 
-func (s *Server) ValidateProfile(ctx context.Context, channelID string, p profile.Profile) error {
-	_ = channelID
+func (s *Server) DeactivateProfile(ctx context.Context, channelID string, profileID int32) error {
+	if err := s.ensureStore(); err != nil {
+		return err
+	}
+	profiles, err := s.Store.List(ctx, channelID)
+	if err != nil {
+		return coreerrors.Wrap(coreerrors.CodeInternal, "store list profiles", err)
+	}
+	found := false
+	for i := range profiles {
+		if profiles[i].ProfileID == profileID {
+			profiles[i].Enabled = false
+			found = true
+		}
+		if err := s.Store.Put(ctx, channelID, profiles[i]); err != nil {
+			return coreerrors.Wrap(coreerrors.CodeInternal, "store deactivate profile", err)
+		}
+	}
+	if !found {
+		return coreerrors.New(coreerrors.CodeProfileNotFound, "profile not found")
+	}
+	return s.ValidateAllProfiles(ctx, channelID)
+}
+
+func (s *Server) ListProfiles(ctx context.Context, channelID string) ([]profile.Profile, error) {
+	if err := s.ensureStore(); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(channelID) == "" {
+		return nil, coreerrors.New(coreerrors.CodeInvalidInput, "channelID is required")
+	}
+	profiles, err := s.Store.List(ctx, channelID)
+	if err != nil {
+		return nil, coreerrors.Wrap(coreerrors.CodeInternal, "store list profiles", err)
+	}
+	return profiles, nil
+}
+
+func (s *Server) ValidateProfile(_ context.Context, _ string, p profile.Profile) error {
 	if err := s.ensureStore(); err != nil {
 		return err
 	}
@@ -122,8 +160,22 @@ func (s *Server) ValidateAllProfiles(ctx context.Context, channelID string) erro
 	if err := profile.ValidateMany(profiles); err != nil {
 		return err
 	}
-	if err := profile.ValidateSet(profiles); err != nil {
-		return err
+	return profile.ValidateSet(profiles)
+}
+
+// SimulateMatch tests which profile would be matched for a given hint.
+func (s *Server) SimulateMatch(ctx context.Context, channelID string, hintProfileID int32) (profile.Profile, error) {
+	if err := s.ensureStore(); err != nil {
+		return profile.Profile{}, err
 	}
-	return nil
+	profiles, err := s.Store.List(ctx, channelID)
+	if err != nil {
+		return profile.Profile{}, coreerrors.Wrap(coreerrors.CodeInternal, "store list profiles", err)
+	}
+	for _, p := range profiles {
+		if p.Enabled && p.ProfileID == hintProfileID {
+			return p, nil
+		}
+	}
+	return profile.Profile{}, coreerrors.New(coreerrors.CodeProfileNotFound, fmt.Sprintf("no enabled profile with id %d", hintProfileID))
 }

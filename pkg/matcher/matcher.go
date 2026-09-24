@@ -2,98 +2,93 @@ package matcher
 
 import (
 	"context"
-	"strings"
+	"sort"
 
+	"github.com/logoscore/logos-golang-channel-core/pkg/cache"
 	coreerrors "github.com/logoscore/logos-golang-channel-core/pkg/errors"
 	"github.com/logoscore/logos-golang-channel-core/pkg/profile"
 )
 
-// Matcher contains profile selection helpers.
-type Matcher struct{}
-
-func New() *Matcher {
-	return &Matcher{}
-}
-
-// MatchSource describes where a profile resolution came from.
 type MatchSource string
 
 const (
-	MatchSourceHint     MatchSource = "hint"
-	MatchSourceFallback MatchSource = "fallback"
-	MatchSourceNone     MatchSource = "none"
+	MatchSourceHint       MatchSource = "hint"
+	MatchSourceCache      MatchSource = "cache"
+	MatchSourceBruteforce MatchSource = "bruteforce"
+	MatchSourceNone       MatchSource = "none"
 )
 
-// Resolution captures the selected profile and selection source.
 type Resolution struct {
 	Profile profile.Profile
 	Source  MatchSource
 }
 
-// Resolve selects a profile from candidates using deterministic hint-first logic.
-func (m *Matcher) Resolve(_ context.Context, hintProfileID string, candidates []profile.Profile) (Resolution, error) {
-	hintProfileID = strings.TrimSpace(hintProfileID)
-	if hintProfileID != "" {
-		hits := make([]profile.Profile, 0, 1)
-		for _, p := range candidates {
-			if !p.Enabled {
-				continue
-			}
-			if p.ProfileID == hintProfileID || p.Mapping.ProfileID == hintProfileID {
-				hits = append(hits, p)
-			}
-		}
-		switch len(hits) {
-		case 1:
-			return Resolution{Profile: hits[0], Source: MatchSourceHint}, nil
-		case 0:
-			// Continue to fallback resolution.
-		default:
-			return Resolution{Source: MatchSourceNone}, coreerrors.New(coreerrors.CodeProfileAmbiguous, "hint matches multiple enabled profiles")
-		}
-	}
-
-	selected, found := selectFallback(candidates)
-	if !found {
-		return Resolution{Source: MatchSourceNone}, coreerrors.New(coreerrors.CodeProfileNotFound, "no enabled fallback profile found")
-	}
-	return Resolution{Profile: selected, Source: MatchSourceFallback}, nil
+type Matcher struct {
+	affinity *cache.Affinity
 }
 
-// SelectHintFirst performs hint-first selection and falls back to the
-// highest-priority enabled default profile.
-func (m *Matcher) SelectHintFirst(ctx context.Context, _ string, hintProfileID string, candidates []profile.Profile) (profile.Profile, bool, error) {
-	resolution, err := m.Resolve(ctx, hintProfileID, candidates)
-	if err != nil {
-		if coreerrors.Code(err) == coreerrors.CodeProfileNotFound {
-			return profile.Profile{}, false, nil
-		}
-		return profile.Profile{}, false, err
-	}
-	return resolution.Profile, true, nil
+func New() *Matcher { return &Matcher{} }
+
+// NewWithCache creates a matcher that uses source affinity caching.
+func NewWithCache(affinity *cache.Affinity) *Matcher {
+	return &Matcher{affinity: affinity}
 }
 
-func selectFallback(candidates []profile.Profile) (profile.Profile, bool) {
-	var selected profile.Profile
-	found := false
+// Resolve resolves a profile by cache, then hint, falling back to brute-force by channel module.
+// sourceKey is used for cache lookups (e.g., IP address, session ID).
+func (m *Matcher) Resolve(_ context.Context, sourceKey string, hintProfileID int32, candidates []profile.Profile) (Resolution, error) {
+	enabled := enabledMap(candidates)
+
+	// 1. Try cache
+	if m.affinity != nil && sourceKey != "" {
+		if cachedID, ok := m.affinity.Get(sourceKey); ok {
+			if p, ok := enabled[cachedID]; ok {
+				return Resolution{Profile: p, Source: MatchSourceCache}, nil
+			}
+		}
+	}
+
+	// 2. Try hint
+	if hintProfileID > 0 {
+		if p, ok := enabled[hintProfileID]; ok {
+			if m.affinity != nil && sourceKey != "" {
+				m.affinity.Set(sourceKey, p.ProfileID)
+			}
+			return Resolution{Profile: p, Source: MatchSourceHint}, nil
+		}
+		return Resolution{Source: MatchSourceNone}, coreerrors.New(coreerrors.CodeProfileNotFound, "hint did not match enabled profiles")
+	}
+
+	return Resolution{Source: MatchSourceNone}, coreerrors.New(coreerrors.CodeProfileNotFound, "no hint provided and no cache hit")
+}
+
+// RecordMatch updates the cache after a successful match (e.g., after brute-force by channel module).
+func (m *Matcher) RecordMatch(sourceKey string, profileID int32) {
+	if m.affinity != nil && sourceKey != "" {
+		m.affinity.Set(sourceKey, profileID)
+	}
+}
+
+// EnabledOrdered returns enabled profiles ordered by profile_id asc.
+func (m *Matcher) EnabledOrdered(candidates []profile.Profile) []profile.Profile {
+	out := make([]profile.Profile, 0, len(candidates))
 	for _, p := range candidates {
-		if !p.Enabled || !p.DefaultFallback {
-			continue
-		}
-		if !found || betterFallback(p, selected) {
-			selected = p
-			found = true
+		if p.Enabled {
+			out = append(out, p)
 		}
 	}
-	return selected, found
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ProfileID < out[j].ProfileID
+	})
+	return out
 }
 
-func betterFallback(candidate, current profile.Profile) bool {
-	if candidate.Priority != current.Priority {
-		return candidate.Priority > current.Priority
+func enabledMap(candidates []profile.Profile) map[int32]profile.Profile {
+	m := make(map[int32]profile.Profile, len(candidates))
+	for _, p := range candidates {
+		if p.Enabled {
+			m[p.ProfileID] = p
+		}
 	}
-	if candidate.ProfileID != current.ProfileID {
-		return candidate.ProfileID < current.ProfileID
-	}
-	return candidate.Mapping.ProfileID < current.Mapping.ProfileID
+	return m
 }

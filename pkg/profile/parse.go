@@ -60,7 +60,7 @@ func ParseYAMLProfiles(data []byte) ([]Profile, error) {
 		return nil, coreerrors.Wrap(coreerrors.CodeProfileInvalid, "unable to parse profile YAML", err)
 	}
 	if err := Validate(one); err != nil {
-		return nil, coreerrors.Wrap(coreerrors.CodeProfileInvalid, fmt.Sprintf("invalid profile %q", one.ProfileID), err)
+		return nil, coreerrors.Wrap(coreerrors.CodeProfileInvalid, fmt.Sprintf("invalid profile %d", one.ProfileID), err)
 	}
 	return []Profile{one}, nil
 }

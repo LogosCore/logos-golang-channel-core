@@ -1,0 +1,3 @@
+[submodule "docs/logos-docs"]
+	path = docs/logos-docs
+	url = https://github.com/logoscore/logos-docs

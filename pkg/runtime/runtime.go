@@ -7,24 +7,39 @@ import (
 	"time"
 
 	coreerrors "github.com/logoscore/logos-golang-channel-core/pkg/errors"
+	"github.com/logoscore/logos-golang-channel-core/pkg/noise"
 	"github.com/logoscore/logos-golang-channel-core/pkg/profile"
+	"github.com/logoscore/logos-golang-channel-core/pkg/transform"
 	protocol "github.com/logoscore/logos-golang-protocol/protocol"
 )
 
 // Runtime orchestrates canonical message handling for channel adapters.
 type Runtime struct {
-	SyncClient SyncClient
+	SyncClient     SyncClient
+	ActionHandlers map[string]ActionHandlerFunc
 }
 
 func New(syncClient SyncClient) *Runtime {
-	return &Runtime{SyncClient: syncClient}
+	r := &Runtime{
+		SyncClient:     syncClient,
+		ActionHandlers: map[string]ActionHandlerFunc{},
+	}
+	r.ActionHandlers["sync"] = func(ctx context.Context, _ map[string]any, inbound protocol.InboundAgentMessage, _ TransportEnvelope) (protocol.OutboundAgentMessage, error) {
+		return syncClient.Sync(ctx, inbound)
+	}
+	return r
+}
+
+// RegisterAction registers a custom action handler for a given action type.
+func (r *Runtime) RegisterAction(name string, handler ActionHandlerFunc) {
+	r.ActionHandlers[name] = handler
 }
 
 // Handle converts envelope fields into canonical inbound message, validates it,
 // syncs with Logos, validates outbound canonical message, and writes mapped fields back.
 func (r *Runtime) Handle(ctx context.Context, envelope TransportEnvelope, channelID string) (protocol.OutboundAgentMessage, error) {
 	if r == nil || r.SyncClient == nil {
-		return protocol.OutboundAgentMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "runtime sync client is required")
+		return protocol.OutboundAgentMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "runtime and sync client are required")
 	}
 	if envelope == nil {
 		return protocol.OutboundAgentMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "transport envelope is required")
@@ -57,8 +72,8 @@ func (r *Runtime) Handle(ctx context.Context, envelope TransportEnvelope, channe
 
 // HandleWithProfile is the profile-aware runtime entrypoint.
 func (r *Runtime) HandleWithProfile(ctx context.Context, envelope TransportEnvelope, channelID string, p profile.Profile) (protocol.OutboundAgentMessage, error) {
-	if r == nil || r.SyncClient == nil {
-		return protocol.OutboundAgentMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "runtime sync client is required")
+	if r == nil {
+		return protocol.OutboundAgentMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "runtime is required")
 	}
 	if envelope == nil {
 		return protocol.OutboundAgentMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "transport envelope is required")
@@ -70,11 +85,17 @@ func (r *Runtime) HandleWithProfile(ctx context.Context, envelope TransportEnvel
 		return protocol.OutboundAgentMessage{}, coreerrors.Wrap(coreerrors.CodeProfileInvalid, "invalid profile", err)
 	}
 
-	id, err := requiredEnvelopeField(envelope, "mapping", p.Mapping.ID)
-	if err != nil {
-		return protocol.OutboundAgentMessage{}, err
+	var id, encryptedData string
+	var err error
+
+	if p.Mapping.CompositeIn != nil {
+		id, encryptedData, err = extractComposite(envelope, *p.Mapping.CompositeIn)
+	} else {
+		id, err = extractField(envelope, p.Mapping.ID)
+		if err == nil {
+			encryptedData, err = extractField(envelope, p.Mapping.EncryptedDataIn)
+		}
 	}
-	encryptedData, err := requiredEnvelopeField(envelope, "mapping", p.Mapping.EncryptedData)
 	if err != nil {
 		return protocol.OutboundAgentMessage{}, err
 	}
@@ -98,7 +119,11 @@ func (r *Runtime) HandleWithProfile(ctx context.Context, envelope TransportEnvel
 		return protocol.OutboundAgentMessage{}, coreerrors.Wrap(coreerrors.CodeCanonicalInvalid, "invalid inbound canonical message", err)
 	}
 
-	outbound, err := r.SyncClient.Sync(ctx, inbound)
+	handler, ok := r.ActionHandlers[p.Action.Type]
+	if !ok {
+		return protocol.OutboundAgentMessage{}, coreerrors.New(coreerrors.CodeNotImplemented, "unsupported action type: "+p.Action.Type)
+	}
+	outbound, err := handler(ctx, p.Action.Params, inbound, envelope)
 	if err != nil {
 		return protocol.OutboundAgentMessage{}, err
 	}
@@ -106,10 +131,68 @@ func (r *Runtime) HandleWithProfile(ctx context.Context, envelope TransportEnvel
 		return protocol.OutboundAgentMessage{}, coreerrors.Wrap(coreerrors.CodeCanonicalInvalid, "invalid outbound canonical message", err)
 	}
 
-	envelope.SetField("mapping", p.Mapping.ID, outbound.ID)
-	envelope.SetField("mapping", p.Mapping.EncryptedData, outbound.EncryptedData)
+	outEncrypted, err := transform.ApplyEncode(outbound.EncryptedData, p.Mapping.EncryptedDataOut.Transform)
+	if err != nil {
+		return protocol.OutboundAgentMessage{}, coreerrors.Wrap(coreerrors.CodeInvalidInput, "transform encode failed for encrypted_data_out", err)
+	}
+	envelope.SetField(p.Mapping.EncryptedDataOut.Target.Location, p.Mapping.EncryptedDataOut.Target.Key, outEncrypted)
+
+	if p.Noise != nil && len(p.Noise.Outbound) > 0 {
+		kvs, err := noise.GenerateAll(p.Noise.Outbound)
+		if err != nil {
+			return protocol.OutboundAgentMessage{}, coreerrors.Wrap(coreerrors.CodeInternal, "outbound noise generation failed", err)
+		}
+		for _, kv := range kvs {
+			envelope.SetField(kv.Location, kv.Key, kv.Value)
+		}
+	}
 
 	return outbound, nil
+}
+
+// extractField extracts a value from the envelope and applies inbound decode transforms.
+func extractField(envelope TransportEnvelope, f profile.MapField) (string, error) {
+	loc := strings.TrimSpace(f.Target.Location)
+	key := strings.TrimSpace(f.Target.Key)
+	raw, ok := envelope.GetField(loc, key)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return "", coreerrors.New(coreerrors.CodeInvalidInput, "missing required field: "+loc+"."+key)
+	}
+	decoded, err := transform.ApplyDecode(raw, f.Transform)
+	if err != nil {
+		return "", coreerrors.Wrap(coreerrors.CodeInvalidInput, "transform decode failed for "+loc+"."+key, err)
+	}
+	return decoded, nil
+}
+
+// extractComposite extracts a composite value and splits it into id + encrypted_data.
+func extractComposite(envelope TransportEnvelope, cf profile.CompositeField) (string, string, error) {
+	loc := strings.TrimSpace(cf.Target.Location)
+	key := strings.TrimSpace(cf.Target.Key)
+	raw, ok := envelope.GetField(loc, key)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return "", "", coreerrors.New(coreerrors.CodeInvalidInput, "missing required field: "+loc+"."+key)
+	}
+	decoded, err := transform.ApplyDecode(raw, cf.Transform)
+	if err != nil {
+		return "", "", coreerrors.Wrap(coreerrors.CodeInvalidInput, "transform decode failed for composite_in", err)
+	}
+
+	switch cf.Separator.Type {
+	case "length_prefix":
+		if len(decoded) < cf.Separator.IDLength {
+			return "", "", coreerrors.New(coreerrors.CodeInvalidInput, "composite_in value too short for length_prefix separator")
+		}
+		return decoded[:cf.Separator.IDLength], decoded[cf.Separator.IDLength:], nil
+	case "delimiter":
+		parts := strings.SplitN(decoded, cf.Separator.Value, 2)
+		if len(parts) != 2 {
+			return "", "", coreerrors.New(coreerrors.CodeInvalidInput, "composite_in value missing delimiter")
+		}
+		return parts[0], parts[1], nil
+	default:
+		return "", "", coreerrors.New(coreerrors.CodeProfileInvalid, "unsupported separator type: "+cf.Separator.Type)
+	}
 }
 
 func inboundFromEnvelope(envelope TransportEnvelope, channelID string) (protocol.InboundAgentMessage, error) {

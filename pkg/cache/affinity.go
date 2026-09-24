@@ -6,7 +6,7 @@ import (
 )
 
 type entry struct {
-	profileID string
+	profileID int32
 	expiresAt time.Time
 }
 
@@ -23,22 +23,22 @@ func NewAffinity(ttl time.Duration) *Affinity {
 	return &Affinity{data: map[string]entry{}, ttl: ttl}
 }
 
-func (a *Affinity) Set(source, profileID string) {
+func (a *Affinity) Set(source string, profileID int32) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.data[source] = entry{profileID: profileID, expiresAt: time.Now().Add(a.ttl)}
 }
 
-func (a *Affinity) Get(source string) (string, bool) {
+func (a *Affinity) Get(source string) (int32, bool) {
 	a.mu.RLock()
 	e, ok := a.data[source]
 	a.mu.RUnlock()
 	if !ok {
-		return "", false
+		return 0, false
 	}
 	if time.Now().After(e.expiresAt) {
 		a.Delete(source)
-		return "", false
+		return 0, false
 	}
 	return e.profileID, true
 }

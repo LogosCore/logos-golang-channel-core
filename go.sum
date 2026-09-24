@@ -1,3 +1,5 @@
+github.com/rabbitmq/amqp091-go v1.10.0 h1:STpn5XsHlHGcecLmMFCtg7mqq0RnD+zFr4uzukfVhBw=
+github.com/rabbitmq/amqp091-go v1.10.0/go.mod h1:Hy4jKW5kQART1u+JkDTF9YYOQUHXqMuhrgxOEeS7G4o=
 github.com/logoscore/logos-golang-protocol v0.1.0 h1:HkkgejOBwYJz6hmb+vq/lEsm5tTpWC2F5/1jANgTjMk=
 github.com/logoscore/logos-golang-protocol v0.1.0/go.mod h1:KEgzt5kyYAK/vckjBmovjvWqBRsUrqod4kg36n8Zo4Y=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+SDo693bJlVdllGtEeKM=

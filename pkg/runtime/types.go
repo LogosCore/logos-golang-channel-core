@@ -19,10 +19,13 @@ type SyncClient interface {
 	Sync(ctx context.Context, in protocol.InboundAgentMessage) (protocol.OutboundAgentMessage, error)
 }
 
+// ActionHandlerFunc handles a matched profile action after inbound extraction.
+type ActionHandlerFunc func(ctx context.Context, params map[string]any, inbound protocol.InboundAgentMessage, envelope TransportEnvelope) (protocol.OutboundAgentMessage, error)
+
 // ProfileStore provides persistence for channel profiles.
 type ProfileStore interface {
 	List(ctx context.Context, channelID string) ([]profile.Profile, error)
-	Get(ctx context.Context, channelID, profileID string) (profile.Profile, error)
+	Get(ctx context.Context, channelID string, profileID int32) (profile.Profile, error)
 	Put(ctx context.Context, channelID string, p profile.Profile) error
-	Delete(ctx context.Context, channelID, profileID string) error
+	Delete(ctx context.Context, channelID string, profileID int32) error
 }
