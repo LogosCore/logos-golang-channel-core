@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	amqp "github.com/rabbitmq/amqp091-go"
 	coreerrors "github.com/logoscore/logos-golang-channel-core/pkg/errors"
 	protocol "github.com/logoscore/logos-golang-protocol/protocol"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 func testIdentity() Identity {

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	amqp "github.com/rabbitmq/amqp091-go"
 	protocol "github.com/logoscore/logos-golang-protocol/protocol"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // Control-plane transport constants for module → core lifecycle RPC. See the

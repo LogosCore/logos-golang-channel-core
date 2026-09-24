@@ -7,9 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/logoscore/logos-golang-channel-core/pkg/mgmtrpc"
 	"github.com/logoscore/logos-golang-channel-core/pkg/profile"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // memStore implements runtime.ProfileStore for testing.
@@ -109,9 +109,9 @@ func testProfile() profile.Profile {
 
 type noopAck struct{}
 
-func (n *noopAck) Ack(uint64, bool) error   { return nil }
+func (n *noopAck) Ack(uint64, bool) error        { return nil }
 func (n *noopAck) Nack(uint64, bool, bool) error { return nil }
-func (n *noopAck) Reject(uint64, bool) error { return nil }
+func (n *noopAck) Reject(uint64, bool) error     { return nil }
 
 // runConsumerOnce runs the consumer loop, sends one delivery, and cancels context.
 func runConsumerOnce(t *testing.T, server *mgmtrpc.Server, method string, params any) response {

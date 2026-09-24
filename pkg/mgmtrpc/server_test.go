@@ -69,16 +69,16 @@ func TestDeactivateProfile(t *testing.T) {
 	p1 := profile.Profile{
 		ProfileID: 1, Enabled: true, Action: profile.Action{Type: "sync"},
 		Mapping: profile.Mapping{
-			ID: profile.MapField{Target: profile.Target{Location: "body", Key: "id"}},
-			EncryptedDataIn: profile.MapField{Target: profile.Target{Location: "body", Key: "in"}},
+			ID:               profile.MapField{Target: profile.Target{Location: "body", Key: "id"}},
+			EncryptedDataIn:  profile.MapField{Target: profile.Target{Location: "body", Key: "in"}},
 			EncryptedDataOut: profile.MapField{Target: profile.Target{Location: "body", Key: "out"}},
 		},
 	}
 	p2 := profile.Profile{
 		ProfileID: 2, Enabled: true, Action: profile.Action{Type: "sync"},
 		Mapping: profile.Mapping{
-			ID: profile.MapField{Target: profile.Target{Location: "body", Key: "id2"}},
-			EncryptedDataIn: profile.MapField{Target: profile.Target{Location: "body", Key: "in2"}},
+			ID:               profile.MapField{Target: profile.Target{Location: "body", Key: "id2"}},
+			EncryptedDataIn:  profile.MapField{Target: profile.Target{Location: "body", Key: "in2"}},
 			EncryptedDataOut: profile.MapField{Target: profile.Target{Location: "body", Key: "out2"}},
 		},
 	}

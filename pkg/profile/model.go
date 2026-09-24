@@ -34,8 +34,8 @@ type NoiseEntry struct {
 
 // NoiseTarget specifies where a noise field is placed.
 type NoiseTarget struct {
-	Location string         `json:"location" yaml:"location"`
-	Key      NoiseKey       `json:"key" yaml:"key"`
+	Location string   `json:"location" yaml:"location"`
+	Key      NoiseKey `json:"key" yaml:"key"`
 }
 
 // NoiseKey can be a fixed string or a generator for random keys.
@@ -114,9 +114,9 @@ type CompositeField struct {
 
 // Separator defines how composite_in splits the combined value into id + encrypted_data.
 type Separator struct {
-	Type     string `json:"type" yaml:"type"`                           // "length_prefix" or "delimiter"
+	Type     string `json:"type" yaml:"type"`                               // "length_prefix" or "delimiter"
 	IDLength int    `json:"id_length,omitempty" yaml:"id_length,omitempty"` // required for length_prefix
-	Value    string `json:"value,omitempty" yaml:"value,omitempty"`     // required for delimiter
+	Value    string `json:"value,omitempty" yaml:"value,omitempty"`         // required for delimiter
 }
 
 func (c CompositeField) Ref() string {

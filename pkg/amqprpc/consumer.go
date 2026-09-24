@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	amqp "github.com/rabbitmq/amqp091-go"
 	coreerrors "github.com/logoscore/logos-golang-channel-core/pkg/errors"
 	"github.com/logoscore/logos-golang-channel-core/pkg/mgmtrpc"
 	"github.com/logoscore/logos-golang-channel-core/pkg/profile"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // amqpChannel abstracts the AMQP channel operations for testability.
