@@ -24,7 +24,7 @@ func New(syncClient SyncClient) *Runtime {
 		SyncClient:     syncClient,
 		ActionHandlers: map[string]ActionHandlerFunc{},
 	}
-	r.ActionHandlers["sync"] = func(ctx context.Context, _ map[string]any, inbound protocol.InboundAgentMessage, _ TransportEnvelope) (protocol.OutboundAgentMessage, error) {
+	r.ActionHandlers["sync"] = func(ctx context.Context, _ map[string]any, inbound protocol.InboundMinionMessage, _ TransportEnvelope) (protocol.OutboundMinionMessage, error) {
 		return syncClient.Sync(ctx, inbound)
 	}
 	return r
@@ -37,31 +37,31 @@ func (r *Runtime) RegisterAction(name string, handler ActionHandlerFunc) {
 
 // Handle converts envelope fields into canonical inbound message, validates it,
 // syncs with Logos, validates outbound canonical message, and writes mapped fields back.
-func (r *Runtime) Handle(ctx context.Context, envelope TransportEnvelope, channelID string) (protocol.OutboundAgentMessage, error) {
+func (r *Runtime) Handle(ctx context.Context, envelope TransportEnvelope, channelID string) (protocol.OutboundMinionMessage, error) {
 	if r == nil || r.SyncClient == nil {
-		return protocol.OutboundAgentMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "runtime and sync client are required")
+		return protocol.OutboundMinionMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "runtime and sync client are required")
 	}
 	if envelope == nil {
-		return protocol.OutboundAgentMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "transport envelope is required")
+		return protocol.OutboundMinionMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "transport envelope is required")
 	}
 	if strings.TrimSpace(channelID) == "" {
-		return protocol.OutboundAgentMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "channelID is required")
+		return protocol.OutboundMinionMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "channelID is required")
 	}
 
 	inbound, err := inboundFromEnvelope(envelope, channelID)
 	if err != nil {
-		return protocol.OutboundAgentMessage{}, err
+		return protocol.OutboundMinionMessage{}, err
 	}
 	if err := protocol.ValidateInbound(inbound); err != nil {
-		return protocol.OutboundAgentMessage{}, coreerrors.Wrap(coreerrors.CodeCanonicalInvalid, "invalid inbound canonical message", err)
+		return protocol.OutboundMinionMessage{}, coreerrors.Wrap(coreerrors.CodeCanonicalInvalid, "invalid inbound canonical message", err)
 	}
 
 	outbound, err := r.SyncClient.Sync(ctx, inbound)
 	if err != nil {
-		return protocol.OutboundAgentMessage{}, err
+		return protocol.OutboundMinionMessage{}, err
 	}
 	if err := protocol.ValidateOutbound(outbound); err != nil {
-		return protocol.OutboundAgentMessage{}, coreerrors.Wrap(coreerrors.CodeCanonicalInvalid, "invalid outbound canonical message", err)
+		return protocol.OutboundMinionMessage{}, coreerrors.Wrap(coreerrors.CodeCanonicalInvalid, "invalid outbound canonical message", err)
 	}
 
 	envelope.SetField("mapping", "id", outbound.ID)
@@ -71,18 +71,18 @@ func (r *Runtime) Handle(ctx context.Context, envelope TransportEnvelope, channe
 }
 
 // HandleWithProfile is the profile-aware runtime entrypoint.
-func (r *Runtime) HandleWithProfile(ctx context.Context, envelope TransportEnvelope, channelID string, p profile.Profile) (protocol.OutboundAgentMessage, error) {
+func (r *Runtime) HandleWithProfile(ctx context.Context, envelope TransportEnvelope, channelID string, p profile.Profile) (protocol.OutboundMinionMessage, error) {
 	if r == nil {
-		return protocol.OutboundAgentMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "runtime is required")
+		return protocol.OutboundMinionMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "runtime is required")
 	}
 	if envelope == nil {
-		return protocol.OutboundAgentMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "transport envelope is required")
+		return protocol.OutboundMinionMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "transport envelope is required")
 	}
 	if strings.TrimSpace(channelID) == "" {
-		return protocol.OutboundAgentMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "channelID is required")
+		return protocol.OutboundMinionMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "channelID is required")
 	}
 	if err := profile.Validate(p); err != nil {
-		return protocol.OutboundAgentMessage{}, coreerrors.Wrap(coreerrors.CodeProfileInvalid, "invalid profile", err)
+		return protocol.OutboundMinionMessage{}, coreerrors.Wrap(coreerrors.CodeProfileInvalid, "invalid profile", err)
 	}
 
 	var id, encryptedData string
@@ -97,12 +97,12 @@ func (r *Runtime) HandleWithProfile(ctx context.Context, envelope TransportEnvel
 		}
 	}
 	if err != nil {
-		return protocol.OutboundAgentMessage{}, err
+		return protocol.OutboundMinionMessage{}, err
 	}
 
-	inbound := protocol.InboundAgentMessage{
+	inbound := protocol.InboundMinionMessage{
 		MessageID: fmt.Sprintf("%s-%d", channelID, time.Now().UnixNano()),
-		Type:      protocol.TypeInboundAgentMessage,
+		Type:      protocol.TypeInboundMinionMessage,
 		Version:   protocol.VersionV1,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Source: protocol.SourceInfo{
@@ -116,31 +116,31 @@ func (r *Runtime) HandleWithProfile(ctx context.Context, envelope TransportEnvel
 	}
 
 	if err := protocol.ValidateInbound(inbound); err != nil {
-		return protocol.OutboundAgentMessage{}, coreerrors.Wrap(coreerrors.CodeCanonicalInvalid, "invalid inbound canonical message", err)
+		return protocol.OutboundMinionMessage{}, coreerrors.Wrap(coreerrors.CodeCanonicalInvalid, "invalid inbound canonical message", err)
 	}
 
 	handler, ok := r.ActionHandlers[p.Action.Type]
 	if !ok {
-		return protocol.OutboundAgentMessage{}, coreerrors.New(coreerrors.CodeNotImplemented, "unsupported action type: "+p.Action.Type)
+		return protocol.OutboundMinionMessage{}, coreerrors.New(coreerrors.CodeNotImplemented, "unsupported action type: "+p.Action.Type)
 	}
 	outbound, err := handler(ctx, p.Action.Params, inbound, envelope)
 	if err != nil {
-		return protocol.OutboundAgentMessage{}, err
+		return protocol.OutboundMinionMessage{}, err
 	}
 	if err := protocol.ValidateOutbound(outbound); err != nil {
-		return protocol.OutboundAgentMessage{}, coreerrors.Wrap(coreerrors.CodeCanonicalInvalid, "invalid outbound canonical message", err)
+		return protocol.OutboundMinionMessage{}, coreerrors.Wrap(coreerrors.CodeCanonicalInvalid, "invalid outbound canonical message", err)
 	}
 
 	outEncrypted, err := transform.ApplyEncode(outbound.EncryptedData, p.Mapping.EncryptedDataOut.Transform)
 	if err != nil {
-		return protocol.OutboundAgentMessage{}, coreerrors.Wrap(coreerrors.CodeInvalidInput, "transform encode failed for encrypted_data_out", err)
+		return protocol.OutboundMinionMessage{}, coreerrors.Wrap(coreerrors.CodeInvalidInput, "transform encode failed for encrypted_data_out", err)
 	}
 	envelope.SetField(p.Mapping.EncryptedDataOut.Target.Location, p.Mapping.EncryptedDataOut.Target.Key, outEncrypted)
 
 	if p.Noise != nil && len(p.Noise.Outbound) > 0 {
 		kvs, err := noise.GenerateAll(p.Noise.Outbound)
 		if err != nil {
-			return protocol.OutboundAgentMessage{}, coreerrors.Wrap(coreerrors.CodeInternal, "outbound noise generation failed", err)
+			return protocol.OutboundMinionMessage{}, coreerrors.Wrap(coreerrors.CodeInternal, "outbound noise generation failed", err)
 		}
 		for _, kv := range kvs {
 			envelope.SetField(kv.Location, kv.Key, kv.Value)
@@ -195,19 +195,19 @@ func extractComposite(envelope TransportEnvelope, cf profile.CompositeField) (st
 	}
 }
 
-func inboundFromEnvelope(envelope TransportEnvelope, channelID string) (protocol.InboundAgentMessage, error) {
+func inboundFromEnvelope(envelope TransportEnvelope, channelID string) (protocol.InboundMinionMessage, error) {
 	id, err := requiredEnvelopeField(envelope, "mapping", "id")
 	if err != nil {
-		return protocol.InboundAgentMessage{}, err
+		return protocol.InboundMinionMessage{}, err
 	}
 	encryptedData, err := requiredEnvelopeField(envelope, "mapping", "encrypted_data")
 	if err != nil {
-		return protocol.InboundAgentMessage{}, err
+		return protocol.InboundMinionMessage{}, err
 	}
 
-	return protocol.InboundAgentMessage{
+	return protocol.InboundMinionMessage{
 		MessageID: fmt.Sprintf("%s-%d", channelID, time.Now().UnixNano()),
-		Type:      protocol.TypeInboundAgentMessage,
+		Type:      protocol.TypeInboundMinionMessage,
 		Version:   protocol.VersionV1,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Source: protocol.SourceInfo{

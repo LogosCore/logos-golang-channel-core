@@ -33,23 +33,22 @@ func (e *testEnvelope) SetField(location, key, value string) {
 }
 
 type testSyncClient struct {
-	outbound protocol.OutboundAgentMessage
+	outbound protocol.OutboundMinionMessage
 	err      error
-	captured protocol.InboundAgentMessage
+	captured protocol.InboundMinionMessage
 }
 
-func (s *testSyncClient) Sync(_ context.Context, in protocol.InboundAgentMessage) (protocol.OutboundAgentMessage, error) {
+func (s *testSyncClient) Sync(_ context.Context, in protocol.InboundMinionMessage) (protocol.OutboundMinionMessage, error) {
 	s.captured = in
 	return s.outbound, s.err
 }
 
-func validOutbound() protocol.OutboundAgentMessage {
-	return protocol.OutboundAgentMessage{
+func validOutbound() protocol.OutboundMinionMessage {
+	return protocol.OutboundMinionMessage{
 		MessageID:     "m-2",
-		Type:          protocol.TypeOutboundAgentMessage,
+		Type:          protocol.TypeOutboundMinionMessage,
 		Version:       protocol.VersionV1,
 		Timestamp:     "2026-03-10T15:00:00Z",
-		Source:        protocol.SourceInfo{Module: "core", ModuleInstance: "main", Transport: "channel", Tenant: "default"},
 		ID:            "msg-2",
 		EncryptedData: "blob-out",
 	}
@@ -70,7 +69,7 @@ func TestRuntimeHandleSuccess(t *testing.T) {
 	if got.ID != "msg-2" {
 		t.Fatalf("unexpected outbound id: %s", got.ID)
 	}
-	if sync.captured.Type != protocol.TypeInboundAgentMessage {
+	if sync.captured.Type != protocol.TypeInboundMinionMessage {
 		t.Fatalf("unexpected inbound type: %s", sync.captured.Type)
 	}
 	if env.data["mapping.id"] != "msg-2" {
@@ -98,12 +97,11 @@ func TestRuntimeHandleInvalidOutbound(t *testing.T) {
 		"mapping.id":             "msg-1",
 		"mapping.encrypted_data": "blob-in",
 	}}
-	sync := &testSyncClient{outbound: protocol.OutboundAgentMessage{
+	sync := &testSyncClient{outbound: protocol.OutboundMinionMessage{
 		MessageID: "m-3",
-		Type:      protocol.TypeOutboundAgentMessage,
+		Type:      protocol.TypeOutboundMinionMessage,
 		Version:   protocol.VersionV1,
 		Timestamp: "2026-03-10T15:00:00Z",
-		Source:    protocol.SourceInfo{Module: "core", ModuleInstance: "main", Transport: "channel", Tenant: "default"},
 		ID:        "msg-2",
 		// missing encrypted_data
 	}}
@@ -272,13 +270,12 @@ func TestRuntimeHandleWithProfileCustomAction(t *testing.T) {
 		},
 	}
 	r := New(&testSyncClient{})
-	r.RegisterAction("redirect", func(_ context.Context, params map[string]any, inbound protocol.InboundAgentMessage, _ TransportEnvelope) (protocol.OutboundAgentMessage, error) {
-		return protocol.OutboundAgentMessage{
+	r.RegisterAction("redirect", func(_ context.Context, params map[string]any, inbound protocol.InboundMinionMessage, _ TransportEnvelope) (protocol.OutboundMinionMessage, error) {
+		return protocol.OutboundMinionMessage{
 			MessageID:     "m-redirect",
-			Type:          protocol.TypeOutboundAgentMessage,
+			Type:          protocol.TypeOutboundMinionMessage,
 			Version:       protocol.VersionV1,
 			Timestamp:     "2026-03-10T15:00:00Z",
-			Source:        protocol.SourceInfo{Module: "core", ModuleInstance: "main", Transport: "channel", Tenant: "default"},
 			ID:            inbound.ID,
 			EncryptedData: "redirected",
 		}, nil

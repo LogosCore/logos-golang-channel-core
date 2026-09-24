@@ -16,11 +16,11 @@ type TransportEnvelope interface {
 
 // SyncClient sends canonical inbound messages and receives canonical outbound messages.
 type SyncClient interface {
-	Sync(ctx context.Context, in protocol.InboundAgentMessage) (protocol.OutboundAgentMessage, error)
+	Sync(ctx context.Context, in protocol.InboundMinionMessage) (protocol.OutboundMinionMessage, error)
 }
 
 // ActionHandlerFunc handles a matched profile action after inbound extraction.
-type ActionHandlerFunc func(ctx context.Context, params map[string]any, inbound protocol.InboundAgentMessage, envelope TransportEnvelope) (protocol.OutboundAgentMessage, error)
+type ActionHandlerFunc func(ctx context.Context, params map[string]any, inbound protocol.InboundMinionMessage, envelope TransportEnvelope) (protocol.OutboundMinionMessage, error)
 
 // ProfileStore provides persistence for channel profiles.
 type ProfileStore interface {

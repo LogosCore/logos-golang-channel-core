@@ -36,7 +36,7 @@ git submodule update --remote docs/logos-docs  # pull latest docs
 The runtime orchestrates a single request through:
 
 1. **Extract** — read fields from a `TransportEnvelope` (transport-specific adapter)
-2. **Canonicalize** — build a `protocol.InboundAgentMessage`, validate it
+2. **Canonicalize** — build a `protocol.InboundMinionMessage`, validate it
 3. **Sync** — send canonical message to Logos via `SyncClient.Sync()`
 4. **Write back** — map outbound canonical fields back onto the envelope
 
