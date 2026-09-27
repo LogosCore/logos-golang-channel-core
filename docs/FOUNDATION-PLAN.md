@@ -7,7 +7,7 @@ Provide a ready-to-use Golang foundation so community contributors can quickly b
 The package must:
 - keep channel modules plaintext-blind
 - standardize canonical channel<->Logos message handling
-- support obfuscation profiles (YAML)
+- support transposition profiles (YAML)
 - provide production-grade runtime primitives (timeouts, retries, metrics, logging)
 
 ---
@@ -15,9 +15,9 @@ The package must:
 ## Scope boundaries
 
 ### In scope for `logos-golang-channel-core` v1
-- Channel runtime pipeline (ingest -> profile resolve -> canonicalize -> sync -> re-obfuscate)
+- Channel runtime pipeline (ingest -> profile resolve -> canonicalize -> sync -> re-transpose)
 - HTTP sync client for Logos endpoint (`POST /api/channel/sync`)
-- Obfuscation profile engine (parse, validate, select, apply)
+- Transposition profile engine (parse, validate, select, apply)
 - YAML profile storage + cache
 - RabbitMQ RPC management surface for profile operations
 - Observability hooks (logs, metrics, trace IDs)
@@ -39,7 +39,7 @@ The package must:
 
 2. `logos-golang-channel-core` (this module)
    - runtime orchestration for channel modules
-   - obfuscation profile management and matching
+   - transposition profile management and matching
    - sync client + management RPC server
 
 3. `logos-golang-channel-adapters` (future)
@@ -100,7 +100,7 @@ Goal: transport implementers only adapt envelope I/O and call runtime handler.
 
 ---
 
-## Obfuscation profile strategy
+## Transposition profile strategy
 
 ### Required profile fields
 - `profile_id`
@@ -193,7 +193,7 @@ On create/update:
 ### Phase 3 — Runtime
 - inbound resolve + canonical mapping
 - sync client integration
-- outbound re-obfuscation
+- outbound re-transposition
 
 ### Phase 4 — Management RPC
 - RabbitMQ RPC endpoints for profile operations

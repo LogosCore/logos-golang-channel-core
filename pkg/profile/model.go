@@ -9,7 +9,7 @@ import (
 
 func marshalJSON(v any) ([]byte, error) { return json.Marshal(v) }
 
-// Profile defines one obfuscation profile for a channel.
+// Profile defines one transposition profile for a channel.
 type Profile struct {
 	ProfileID    int32   `json:"profile_id" yaml:"profile_id"`
 	ProfileLabel string  `json:"profile_label,omitempty" yaml:"profile_label,omitempty"`

@@ -46,9 +46,9 @@ Two entrypoints: `runtime.Handle()` (basic) and `runtime.HandleWithProfile()` (p
 
 - **`TransportEnvelope`** — channel adapters implement this (`GetField`, `SetField`, `SourceKey`). Each transport (HTTP handler, bot webhook, etc.) wraps its native request in this interface.
 - **`SyncClient`** — abstraction over Logos communication. `pkg/syncclient.HTTPClient` is the concrete implementation (POST to `/api/channel/sync`).
-- **`ProfileStore`** — persistence for obfuscation profiles. Callers provide their own implementation (in-memory, database, etc.).
+- **`ProfileStore`** — persistence for transposition profiles. Callers provide their own implementation (in-memory, database, etc.).
 
-### Obfuscation Profiles
+### Transposition Profiles
 
 Profiles define how canonical fields map to/from transport-specific locations. A channel can have multiple profiles; exactly one enabled profile must be the default fallback.
 
