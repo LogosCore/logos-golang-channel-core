@@ -24,7 +24,7 @@ The package must:
 - Error model and retry policy
 
 ### Out of scope for v1
-- Implant cryptography internals (decrypt/encrypt payload semantics)
+- Minion cryptography internals (decrypt/encrypt payload semantics)
 - UI components
 - Full multi-tenant control plane implementation
 
