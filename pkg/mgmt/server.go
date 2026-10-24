@@ -63,6 +63,10 @@ type Server struct {
 	props    map[string]protocol.PropertySpec
 	actSpecs map[string]protocol.ActionSpec
 	startup  map[string]any // restart-mode values the process started with
+	// booted is set by the first successful ApplyConfig. Until then the
+	// process is still starting, so restart-mode values from core (normally the
+	// register reply's config) are adopted as the startup values.
+	booted bool
 	source   protocol.Source
 
 	applyMu sync.Mutex // serializes ApplyConfig, including the apply callback
@@ -178,8 +182,10 @@ func (s *Server) StatusSnapshot() map[string]any {
 // ApplyConfig applies core's effective config. A revision older than the one
 // already applied is ignored. For each property the value is cfg.Values[key],
 // or the property's Default when absent; an invalid value is rejected and the
-// previous value kept. Changed restart-mode values are reported, not applied.
-// The reply's AppliedRevision is cfg.Revision even when keys were rejected.
+// previous value kept. Changed restart-mode values are reported, not applied,
+// except on the first apply after start, which adopts them as startup values
+// (the module calls ApplyConfig during startup with the register reply). The
+// reply's AppliedRevision is cfg.Revision even when keys were rejected.
 func (s *Server) ApplyConfig(ctx context.Context, cfg protocol.ManagementConfig) protocol.ConfigApplyReply {
 	s.applyMu.Lock()
 	defer s.applyMu.Unlock()
@@ -204,7 +210,7 @@ func (s *Server) ApplyConfig(ctx context.Context, cfg protocol.ManagementConfig)
 			continue
 		}
 		v = normalize(p.FieldSpec, v)
-		if p.Apply == protocol.ApplyRestart {
+		if p.Apply == protocol.ApplyRestart && s.booted {
 			// The running value stays the startup one until a restart.
 			if !reflect.DeepEqual(v, s.startup[p.Key]) {
 				restart = append(restart, p.Key)
@@ -214,8 +220,10 @@ func (s *Server) ApplyConfig(ctx context.Context, cfg protocol.ManagementConfig)
 		next[p.Key] = v
 	}
 
+	applyFailed := false
 	if fn != nil {
 		if err := fn(ctx, cloneMap(next)); err != nil {
+			applyFailed = true
 			for k, v := range next {
 				if !reflect.DeepEqual(v, prev[k]) {
 					rejected[k] = "apply failed: " + err.Error()
@@ -223,6 +231,15 @@ func (s *Server) ApplyConfig(ctx context.Context, cfg protocol.ManagementConfig)
 			}
 			next = prev
 		}
+	}
+
+	if !s.booted && !applyFailed {
+		for _, p := range s.manifest.Properties {
+			if p.Apply == protocol.ApplyRestart {
+				s.startup[p.Key] = next[p.Key]
+			}
+		}
+		s.booted = true
 	}
 
 	s.mu.Lock()

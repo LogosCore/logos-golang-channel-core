@@ -153,6 +153,7 @@ func TestApplyConfigRestartRequired(t *testing.T) {
 	s := newTestServer(t)
 	var got map[string]any
 	s.OnApply(func(_ context.Context, live map[string]any) error { got = live; return nil })
+	boot(t, s)
 
 	rep := s.ApplyConfig(context.Background(), protocol.ManagementConfig{
 		Revision: 1, Values: map[string]any{"base_url": "http://other:9000"},
@@ -173,6 +174,32 @@ func TestApplyConfigRestartRequired(t *testing.T) {
 	})
 	if len(rep.RestartRequired) != 0 {
 		t.Errorf("restart_required = %v, want empty", rep.RestartRequired)
+	}
+}
+
+// boot performs the startup apply (as the register reply would) with no values.
+func boot(t *testing.T, s *Server) {
+	t.Helper()
+	s.ApplyConfig(context.Background(), protocol.ManagementConfig{Revision: 0})
+}
+
+func TestApplyConfigFirstApplyAdoptsRestartValues(t *testing.T) {
+	s := newTestServer(t)
+	var got map[string]any
+	s.OnApply(func(_ context.Context, live map[string]any) error { got = live; return nil })
+
+	// The startup apply (register reply) is applied in full, restart-mode included.
+	rep := s.ApplyConfig(context.Background(), protocol.ManagementConfig{
+		Revision: 3, Values: map[string]any{"base_url": "http://other:9000"},
+	})
+	if len(rep.RestartRequired) != 0 || got["base_url"] != "http://other:9000" {
+		t.Fatalf("startup apply: restart_required = %v, live base_url = %v", rep.RestartRequired, got["base_url"])
+	}
+
+	// Later changes to it need a restart; reverting to the adopted value does not.
+	rep = s.ApplyConfig(context.Background(), protocol.ManagementConfig{Revision: 4})
+	if !slices.Equal(rep.RestartRequired, []string{"base_url"}) || got["base_url"] != "http://other:9000" {
+		t.Fatalf("after boot: restart_required = %v, live base_url = %v", rep.RestartRequired, got["base_url"])
 	}
 }
 
