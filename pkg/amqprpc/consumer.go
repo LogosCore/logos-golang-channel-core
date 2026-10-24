@@ -1,3 +1,8 @@
+// Package amqprpc serves the profile management RPC (pkg/mgmtrpc) over AMQP
+// with an ad-hoc {method, params} request format.
+//
+// Deprecated: module management now uses the control-plane envelope and the
+// manifest-driven pkg/mgmt (AMQPConsumer on the module's rpc_queue).
 package amqprpc
 
 import (

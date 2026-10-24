@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- **Module management** (`pkg/mgmt`): `Server` built from a
+  `protocol.ManagementManifest` (validated at construction) that serves
+  `mgmt.config.apply` (stale revisions ignored, absent keys revert to the
+  property default, invalid values rejected per key while keeping the previous
+  value, changed restart-mode values reported as restart-required),
+  `mgmt.action.invoke` (param validation, `timeout_seconds` bound, default 30s,
+  dedupe on `invocation_id`) and `mgmt.state.get` (secrets redacted).
+  `AMQPConsumer` serves it on the module's `rpc_queue` (exclusive, auto-delete,
+  bound to `logos.channel.rpc` with key = instance).
+- **Lifecycle** `WithManagement(s)`: `module.register` declares `management`
+  and `applied_revision` and applies `config.management` from every register
+  ack; `module.heartbeat` sends `applied_revision` and merges status values into
+  `metrics`. `BootstrapConfig.Management` holds the apply result. `Run` now
+  adopts a changed heartbeat interval on re-register.
+- Deprecated `pkg/amqprpc` and `pkg/mgmtrpc` in favor of `pkg/mgmt`.
+
 ## v2.0.0
 
 - **BREAKING: module path is now `github.com/logoscore/logos-golang-channel-core/v2`.**

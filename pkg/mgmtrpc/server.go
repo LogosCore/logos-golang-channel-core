@@ -1,3 +1,7 @@
+// Package mgmtrpc provides profile CRUD handlers over a ProfileStore.
+//
+// Deprecated: module management now uses the manifest-driven pkg/mgmt, which
+// core drives over the module's rpc_queue.
 package mgmtrpc
 
 import (
