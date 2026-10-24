@@ -9,6 +9,7 @@ import (
 	"time"
 
 	coreerrors "github.com/logoscore/logos-golang-channel-core/v2/pkg/errors"
+	"github.com/logoscore/logos-golang-channel-core/v2/pkg/mgmt"
 	protocol "github.com/logoscore/logos-golang-protocol/protocol"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -433,4 +434,187 @@ func TestWithDeregisterTimeout(t *testing.T) {
 	if c2.deregisterTimeout != defaultDeregisterTimeout {
 		t.Errorf("deregisterTimeout = %v, want default", c2.deregisterTimeout)
 	}
+}
+
+func testMgmtServer(t *testing.T) *mgmt.Server {
+	t.Helper()
+	s, err := mgmt.New(protocol.ManagementManifest{
+		SchemaVersion: protocol.ManagementSchemaV1,
+		Properties: []protocol.PropertySpec{{
+			FieldSpec: protocol.FieldSpec{Key: "log_level", Type: protocol.FieldString, Default: "info"},
+			Apply:     protocol.ApplyLive,
+		}},
+		Status: []protocol.StatusSpec{{Key: "requests_total", Type: protocol.FieldInt}},
+	})
+	if err != nil {
+		t.Fatalf("mgmt.New: %v", err)
+	}
+	return s
+}
+
+// mgmtRegisterReply is a register ack carrying config.management.
+func mgmtRegisterReply(t *testing.T, req protocol.Envelope, cfg protocol.ManagementConfig, interval int) protocol.ReplyEnvelope {
+	t.Helper()
+	raw, _ := json.Marshal(cfg)
+	return okReply(t, req, registerReply{
+		Instance: "http-1", Registered: true, HeartbeatIntervalSecs: interval,
+		Config: map[string]json.RawMessage{"management": raw},
+	})
+}
+
+func TestRegisterWithoutManagementOmitsFields(t *testing.T) {
+	fp := &fakePublisher{replyFn: func(req protocol.Envelope) (protocol.ReplyEnvelope, error) {
+		if req.Type == TypeRegister {
+			return okReply(t, req, registerReply{Instance: "http-1", Registered: true}), nil
+		}
+		return okReply(t, req, heartbeatReply{Ack: true}), nil
+	}}
+	c := NewClient(fp, testIdentity())
+	boot, err := c.Register(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if boot.Management != nil {
+		t.Errorf("Management = %+v, want nil", boot.Management)
+	}
+	if _, err := c.Heartbeat(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range fp.calls() {
+		var raw map[string]any
+		_ = json.Unmarshal(env.Payload, &raw)
+		for _, k := range []string{"management", "applied_revision"} {
+			if _, ok := raw[k]; ok {
+				t.Errorf("%s payload has %q without management", env.Type, k)
+			}
+		}
+	}
+}
+
+func TestRegisterSendsManifestAndAppliesConfig(t *testing.T) {
+	s := testMgmtServer(t)
+	var live map[string]any
+	s.OnApply(func(_ context.Context, v map[string]any) error { live = v; return nil })
+	fp := &fakePublisher{replyFn: func(req protocol.Envelope) (protocol.ReplyEnvelope, error) {
+		return mgmtRegisterReply(t, req, protocol.ManagementConfig{Revision: 4, Values: map[string]any{"log_level": "debug"}}, 0), nil
+	}}
+
+	boot, err := NewClient(fp, testIdentity(), WithManagement(s)).Register(context.Background())
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if boot.Management == nil || boot.Management.AppliedRevision != 4 {
+		t.Errorf("Management = %+v, want applied revision 4", boot.Management)
+	}
+	if live["log_level"] != "debug" || s.AppliedRevision() != 4 {
+		t.Errorf("live = %+v revision = %d", live, s.AppliedRevision())
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(fp.calls()[0].Payload, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if string(raw["applied_revision"]) != "0" {
+		t.Errorf("applied_revision = %s, want 0 before first apply", raw["applied_revision"])
+	}
+	var m protocol.ManagementManifest
+	if err := json.Unmarshal(raw["management"], &m); err != nil || len(m.Properties) != 1 || m.Properties[0].Key != "log_level" {
+		t.Errorf("management = %s (%v)", raw["management"], err)
+	}
+}
+
+func TestRegisterBadManagementConfigFails(t *testing.T) {
+	fp := &fakePublisher{replyFn: func(req protocol.Envelope) (protocol.ReplyEnvelope, error) {
+		return okReply(t, req, registerReply{Registered: true,
+			Config: map[string]json.RawMessage{"management": json.RawMessage(`"nope"`)}}), nil
+	}}
+	if _, err := NewClient(fp, testIdentity(), WithManagement(testMgmtServer(t))).Register(context.Background()); err == nil {
+		t.Fatal("expected decode error")
+	}
+}
+
+func TestHeartbeatSendsRevisionAndMergesStatus(t *testing.T) {
+	s := testMgmtServer(t)
+	s.Status(func() map[string]any { return map[string]any{"requests_total": 9} })
+	s.ApplyConfig(context.Background(), protocol.ManagementConfig{Revision: 2})
+	fp := &fakePublisher{replyFn: func(req protocol.Envelope) (protocol.ReplyEnvelope, error) {
+		return okReply(t, req, heartbeatReply{Ack: true}), nil
+	}}
+	c := NewClient(fp, testIdentity(), WithManagement(s),
+		WithMetrics(func() map[string]any { return map[string]any{"requests_total": 1, "profiles": 2} }))
+	if _, err := c.Heartbeat(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var hr heartbeatRequest
+	if err := json.Unmarshal(fp.calls()[0].Payload, &hr); err != nil {
+		t.Fatal(err)
+	}
+	if hr.AppliedRevision == nil || *hr.AppliedRevision != 2 {
+		t.Errorf("applied_revision = %v, want 2", hr.AppliedRevision)
+	}
+	if hr.Metrics["requests_total"] != float64(9) || hr.Metrics["profiles"] != float64(2) {
+		t.Errorf("metrics = %+v, want status to win and WithMetrics kept", hr.Metrics)
+	}
+}
+
+func TestRunReappliesManagementOnConfigChanged(t *testing.T) {
+	s := testMgmtServer(t)
+	applied := make(chan string, 4)
+	s.OnApply(func(_ context.Context, v map[string]any) error { applied <- v["log_level"].(string); return nil })
+
+	var mu sync.Mutex
+	registers := 0
+	fp := &fakePublisher{}
+	fp.replyFn = func(req protocol.Envelope) (protocol.ReplyEnvelope, error) {
+		switch req.Type {
+		case TypeRegister:
+			mu.Lock()
+			registers++
+			n := registers
+			mu.Unlock()
+			level, interval := "info", 1
+			if n > 1 {
+				level, interval = "debug", 5
+			}
+			return mgmtRegisterReply(t, req, protocol.ManagementConfig{Revision: int64(n), Values: map[string]any{"log_level": level}}, interval), nil
+		case TypeHeartbeat:
+			return okReply(t, req, heartbeatReply{Ack: true, ConfigChanged: true}), nil
+		}
+		return okReply(t, req, map[string]any{}), nil
+	}
+
+	c := NewClient(fp, testIdentity(), WithManagement(s))
+	intervals := make(chan time.Duration, 4)
+	tickCh := make(chan time.Time)
+	c.newTicker = func(d time.Duration) (<-chan time.Time, func()) { intervals <- d; return tickCh, func() {} }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+
+	if got := <-applied; got != "info" {
+		t.Fatalf("applied %q, want info", got)
+	}
+	tickCh <- time.Time{} // heartbeat -> config_changed -> re-register
+	select {
+	case got := <-applied:
+		if got != "debug" {
+			t.Fatalf("re-applied %q, want debug", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("config not re-applied after config_changed")
+	}
+	if <-intervals != time.Second {
+		t.Error("first ticker interval != 1s")
+	}
+	select {
+	case d := <-intervals:
+		if d != 5*time.Second {
+			t.Errorf("new interval = %v, want 5s", d)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ticker not reset to the new interval")
+	}
+	cancel()
+	<-done
 }

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	coreerrors "github.com/logoscore/logos-golang-channel-core/v2/pkg/errors"
+	"github.com/logoscore/logos-golang-channel-core/v2/pkg/mgmt"
 	protocol "github.com/logoscore/logos-golang-protocol/protocol"
 )
 
@@ -71,12 +72,19 @@ func (id Identity) validate() error {
 }
 
 // BootstrapConfig is the registration ack: liveness parameters plus the opaque
-// per-module bootstrap config core returns.
+// per-module bootstrap config core returns. With WithManagement, Management is
+// the result of applying config.management from the ack (nil when core sent
+// none).
 type BootstrapConfig struct {
 	HeartbeatInterval time.Duration
 	GraceMisses       int
 	Config            map[string]json.RawMessage
+	Management        *protocol.ConfigApplyReply
 }
+
+// managementConfigKey is the register-reply config key holding the effective
+// management config.
+const managementConfigKey = "management"
 
 // HeartbeatResult is the outcome of a single heartbeat. When ConfigChanged is
 // true the module should re-register to pull updated bootstrap config.
@@ -102,6 +110,7 @@ type Client struct {
 	source  protocol.Source
 	status  func() Status
 	metrics MetricsFunc
+	mgmt    *mgmt.Server
 
 	deregisterTimeout time.Duration
 	// newTicker is injectable so the Run loop is deterministically testable.
@@ -125,6 +134,15 @@ func WithStatus(fn func() Status) Option {
 // snapshot.
 func WithMetrics(fn MetricsFunc) Option {
 	return func(c *Client) { c.metrics = fn }
+}
+
+// WithManagement declares s's manifest at registration and keeps s in sync with
+// core: every register (including re-registers) applies the reply's
+// config.management, and heartbeats report s's applied revision and status
+// values (merged over WithMetrics, status keys winning). Serve s on the
+// rpc_queue (mgmt.NewAMQPConsumer) before running the Client.
+func WithManagement(s *mgmt.Server) Option {
+	return func(c *Client) { c.mgmt = s }
 }
 
 // WithDeregisterTimeout overrides how long Run waits for the shutdown
@@ -165,6 +183,9 @@ type registerRequest struct {
 	Version     string `json:"version"`
 	RPCQueue    string `json:"rpc_queue"`
 	Description string `json:"description,omitempty"`
+
+	Management      *protocol.ManagementManifest `json:"management,omitempty"`
+	AppliedRevision *int64                       `json:"applied_revision,omitempty"`
 }
 
 type registerReply struct {
@@ -179,6 +200,8 @@ type heartbeatRequest struct {
 	Instance string         `json:"instance"`
 	Status   Status         `json:"status"`
 	Metrics  map[string]any `json:"metrics,omitempty"`
+
+	AppliedRevision *int64 `json:"applied_revision,omitempty"`
 }
 
 type heartbeatReply struct {
@@ -200,19 +223,44 @@ func (c *Client) Register(ctx context.Context) (BootstrapConfig, error) {
 	if err := c.id.validate(); err != nil {
 		return BootstrapConfig{}, err
 	}
-	var rep registerReply
-	err := c.call(ctx, TypeRegister, registerRequest{
+	req := registerRequest{
 		ModuleType:  c.id.ModuleType,
 		ModuleName:  c.id.ModuleName,
 		Instance:    c.id.Instance,
 		Version:     c.id.Version,
 		RPCQueue:    c.id.RPCQueue,
 		Description: c.id.Description,
-	}, &rep)
-	if err != nil {
+	}
+	if c.mgmt != nil {
+		m := c.mgmt.Manifest()
+		rev := c.mgmt.AppliedRevision()
+		req.Management, req.AppliedRevision = &m, &rev
+	}
+	var rep registerReply
+	if err := c.call(ctx, TypeRegister, req, &rep); err != nil {
 		return BootstrapConfig{}, err
 	}
-	return bootstrapFrom(rep), nil
+	boot := bootstrapFrom(rep)
+	if err := c.applyManagement(ctx, &boot); err != nil {
+		return BootstrapConfig{}, err
+	}
+	return boot, nil
+}
+
+// applyManagement applies config.management from a register ack, the
+// effective config the module must run with.
+func (c *Client) applyManagement(ctx context.Context, boot *BootstrapConfig) error {
+	raw, ok := boot.Config[managementConfigKey]
+	if c.mgmt == nil || !ok {
+		return nil
+	}
+	var cfg protocol.ManagementConfig
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return coreerrors.Wrap(coreerrors.CodeInternal, "decode config.management", err)
+	}
+	rep := c.mgmt.ApplyConfig(ctx, cfg)
+	boot.Management = &rep
+	return nil
 }
 
 // Heartbeat sends a single liveness beat and reports whether core signaled a
@@ -222,13 +270,24 @@ func (c *Client) Heartbeat(ctx context.Context) (HeartbeatResult, error) {
 	if c.metrics != nil {
 		metrics = c.metrics()
 	}
+	req := heartbeatRequest{Instance: c.id.Instance, Status: c.status()}
+	if c.mgmt != nil {
+		if status := c.mgmt.StatusSnapshot(); len(status) > 0 {
+			merged := make(map[string]any, len(metrics)+len(status))
+			for k, v := range metrics {
+				merged[k] = v
+			}
+			for k, v := range status {
+				merged[k] = v
+			}
+			metrics = merged
+		}
+		rev := c.mgmt.AppliedRevision()
+		req.AppliedRevision = &rev
+	}
+	req.Metrics = metrics
 	var rep heartbeatReply
-	err := c.call(ctx, TypeHeartbeat, heartbeatRequest{
-		Instance: c.id.Instance,
-		Status:   c.status(),
-		Metrics:  metrics,
-	}, &rep)
-	if err != nil {
+	if err := c.call(ctx, TypeHeartbeat, req, &rep); err != nil {
 		return HeartbeatResult{}, err
 	}
 	return HeartbeatResult{ConfigChanged: rep.ConfigChanged}, nil
@@ -242,16 +301,28 @@ func (c *Client) Deregister(ctx context.Context, reason string) error {
 
 // Run registers, then heartbeats until ctx is cancelled, then deregisters
 // gracefully. It re-registers when core reports the instance unknown
-// (unknown_instance) or signals config_changed. Run returns the error that
-// ended it; a clean shutdown via ctx cancellation returns nil.
+// (unknown_instance) or signals config_changed; each re-register re-applies
+// the management config from the ack (WithManagement) and adopts a changed
+// heartbeat interval. Run returns the error that ended it; a clean shutdown
+// via ctx cancellation returns nil.
 func (c *Client) Run(ctx context.Context) error {
 	boot, err := c.Register(ctx)
 	if err != nil {
 		return err
 	}
 
-	tick, stop := c.newTicker(boot.HeartbeatInterval)
-	defer stop()
+	interval := boot.HeartbeatInterval
+	tick, stop := c.newTicker(interval)
+	defer func() { stop() }()
+	reregister := func() {
+		boot, err := c.Register(ctx)
+		if err != nil || boot.HeartbeatInterval == interval {
+			return
+		}
+		stop()
+		interval = boot.HeartbeatInterval
+		tick, stop = c.newTicker(interval)
+	}
 
 	for {
 		select {
@@ -265,12 +336,12 @@ func (c *Client) Run(ctx context.Context) error {
 				// (transient transport, etc.) are retried on the next beat;
 				// core declares an instance dead only after grace misses.
 				if coreerrors.Code(err) == protocol.CodeUnknownInstance {
-					_, _ = c.Register(ctx)
+					reregister()
 				}
 				continue
 			}
 			if hb.ConfigChanged {
-				_, _ = c.Register(ctx)
+				reregister()
 			}
 		}
 	}
