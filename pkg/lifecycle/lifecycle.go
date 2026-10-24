@@ -310,13 +310,18 @@ func (c *Client) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	c.reportApplied(ctx, boot)
 
 	interval := boot.HeartbeatInterval
 	tick, stop := c.newTicker(interval)
 	defer func() { stop() }()
 	reregister := func() {
 		boot, err := c.Register(ctx)
-		if err != nil || boot.HeartbeatInterval == interval {
+		if err != nil {
+			return
+		}
+		c.reportApplied(ctx, boot)
+		if boot.HeartbeatInterval == interval {
 			return
 		}
 		stop()
@@ -345,6 +350,16 @@ func (c *Client) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// reportApplied heartbeats right after a register whose reply carried config,
+// so core sees the newly applied revision now rather than one interval later
+// (register itself reports the revision from before that apply).
+func (c *Client) reportApplied(ctx context.Context, boot BootstrapConfig) {
+	if c.mgmt == nil || boot.Management == nil {
+		return
+	}
+	_, _ = c.Heartbeat(ctx)
 }
 
 // gracefulDeregister deregisters with a fresh, bounded context since Run's ctx

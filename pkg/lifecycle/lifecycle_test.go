@@ -618,3 +618,42 @@ func TestRunReappliesManagementOnConfigChanged(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func TestRunHeartbeatsAppliedRevisionRightAfterRegister(t *testing.T) {
+	s := testMgmtServer(t)
+	fp := &fakePublisher{}
+	beat := make(chan heartbeatRequest, 1)
+	fp.replyFn = func(req protocol.Envelope) (protocol.ReplyEnvelope, error) {
+		switch req.Type {
+		case TypeRegister:
+			return mgmtRegisterReply(t, req, protocol.ManagementConfig{Revision: 7, Values: map[string]any{}}, 30), nil
+		case TypeHeartbeat:
+			var hr heartbeatRequest
+			_ = json.Unmarshal(req.Payload, &hr)
+			select {
+			case beat <- hr:
+			default:
+			}
+			return okReply(t, req, heartbeatReply{Ack: true}), nil
+		}
+		return okReply(t, req, map[string]any{}), nil
+	}
+
+	c := NewClient(fp, testIdentity(), WithManagement(s))
+	c.newTicker = func(time.Duration) (<-chan time.Time, func()) { return make(chan time.Time), func() {} } // never ticks
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+
+	select {
+	case hr := <-beat:
+		if hr.AppliedRevision == nil || *hr.AppliedRevision != 7 {
+			t.Fatalf("heartbeat applied_revision = %v, want 7", hr.AppliedRevision)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no heartbeat right after register")
+	}
+	cancel()
+	<-done
+}
