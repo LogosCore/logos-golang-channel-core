@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	coreerrors "github.com/logoscore/logos-golang-channel-core/pkg/errors"
-	"github.com/logoscore/logos-golang-channel-core/pkg/profile"
-	"github.com/logoscore/logos-golang-channel-core/pkg/runtime"
+	coreerrors "github.com/logoscore/logos-golang-channel-core/v2/pkg/errors"
+	"github.com/logoscore/logos-golang-channel-core/v2/pkg/profile"
+	"github.com/logoscore/logos-golang-channel-core/v2/pkg/runtime"
 )
 
 // Server provides management RPC handlers over a ProfileStore abstraction.

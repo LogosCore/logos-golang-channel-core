@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	coreerrors "github.com/logoscore/logos-golang-channel-core/pkg/errors"
+	coreerrors "github.com/logoscore/logos-golang-channel-core/v2/pkg/errors"
 	protocol "github.com/logoscore/logos-golang-protocol/protocol"
 )
 

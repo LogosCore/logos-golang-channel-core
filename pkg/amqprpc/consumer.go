@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	coreerrors "github.com/logoscore/logos-golang-channel-core/pkg/errors"
-	"github.com/logoscore/logos-golang-channel-core/pkg/mgmtrpc"
-	"github.com/logoscore/logos-golang-channel-core/pkg/profile"
+	coreerrors "github.com/logoscore/logos-golang-channel-core/v2/pkg/errors"
+	"github.com/logoscore/logos-golang-channel-core/v2/pkg/mgmtrpc"
+	"github.com/logoscore/logos-golang-channel-core/v2/pkg/profile"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 

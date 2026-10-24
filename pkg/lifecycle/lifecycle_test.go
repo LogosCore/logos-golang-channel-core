@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	coreerrors "github.com/logoscore/logos-golang-channel-core/pkg/errors"
+	coreerrors "github.com/logoscore/logos-golang-channel-core/v2/pkg/errors"
 	protocol "github.com/logoscore/logos-golang-protocol/protocol"
 	amqp "github.com/rabbitmq/amqp091-go"
 )

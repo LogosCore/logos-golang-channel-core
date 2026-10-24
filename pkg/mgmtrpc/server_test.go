@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/logoscore/logos-golang-channel-core/pkg/profile"
+	"github.com/logoscore/logos-golang-channel-core/v2/pkg/profile"
 )
 
 type memStore struct {

@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## v2.0.0
 
+- **BREAKING: module path is now `github.com/logoscore/logos-golang-channel-core/v2`.**
+  Update imports from `.../logos-golang-channel-core/pkg/...` to
+  `.../logos-golang-channel-core/v2/pkg/...`.
 - **Module lifecycle client** (`pkg/lifecycle`): module-side client for the
   registration/liveness control-plane contract (`module.register` /
   `module.heartbeat` / `module.deregister`). Provides `Client` with

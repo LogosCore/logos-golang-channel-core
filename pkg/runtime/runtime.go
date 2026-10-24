@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	coreerrors "github.com/logoscore/logos-golang-channel-core/pkg/errors"
-	"github.com/logoscore/logos-golang-channel-core/pkg/noise"
-	"github.com/logoscore/logos-golang-channel-core/pkg/profile"
-	"github.com/logoscore/logos-golang-channel-core/pkg/transform"
+	coreerrors "github.com/logoscore/logos-golang-channel-core/v2/pkg/errors"
+	"github.com/logoscore/logos-golang-channel-core/v2/pkg/noise"
+	"github.com/logoscore/logos-golang-channel-core/v2/pkg/profile"
+	"github.com/logoscore/logos-golang-channel-core/v2/pkg/transform"
 	protocol "github.com/logoscore/logos-golang-protocol/protocol"
 )
 

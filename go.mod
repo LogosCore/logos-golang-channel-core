@@ -1,4 +1,4 @@
-module github.com/logoscore/logos-golang-channel-core
+module github.com/logoscore/logos-golang-channel-core/v2
 
 go 1.25.7
 

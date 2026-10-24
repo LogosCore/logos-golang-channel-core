@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Go SDK (`github.com/logoscore/logos-golang-channel-core`) for building Logos channel modules. Channel modules bridge arbitrary transports (HTTP, Telegram, etc.) to the Logos server while remaining plaintext-blind — they never decrypt agent payloads.
+Go SDK (`github.com/logoscore/logos-golang-channel-core/v2`) for building Logos channel modules. Channel modules bridge arbitrary transports (HTTP, Telegram, etc.) to the Logos server while remaining plaintext-blind — they never decrypt agent payloads.
 
 Depends on `github.com/logoscore/logos-golang-protocol` for canonical message types and validation.
 
@@ -65,7 +65,7 @@ Profiles define how canonical fields map to/from transport-specific locations. A
 
 ## Conventions
 
-- All packages live under `pkg/`. Import paths follow `github.com/logoscore/logos-golang-channel-core/pkg/<name>`.
+- All packages live under `pkg/`. Import paths follow `github.com/logoscore/logos-golang-channel-core/v2/pkg/<name>`.
 - The errors package is imported as `coreerrors` throughout the codebase to avoid collision with the stdlib `errors`.
 - Profile validation is two-phase: schema completeness (`Validate`) then set-level constraints (`ValidateSet`).
 - Combined field mapping (`CombinedIn`/`CombinedOut`) is an alternative to separate `EncryptedDataIn`/`EncryptedDataOut` fields — profiles use one or the other, not both.
