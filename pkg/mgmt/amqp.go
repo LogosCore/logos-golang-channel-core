@@ -29,6 +29,7 @@ type consumeChannel interface {
 	Qos(prefetchCount, prefetchSize int, global bool) error
 	ConsumeWithContext(ctx context.Context, queue, consumer string, autoAck, exclusive, noLocal, noWait bool, args amqp.Table) (<-chan amqp.Delivery, error)
 	PublishWithContext(ctx context.Context, exchange, key string, mandatory, immediate bool, msg amqp.Publishing) error
+	Cancel(consumer string, noWait bool) error
 	Close() error
 }
 
@@ -38,6 +39,8 @@ type consumeChannel interface {
 type AMQPConsumer struct {
 	ch     consumeChannel
 	srv    *Server
+	tag    string
+	ctx    context.Context // handler context, cancelled by Close
 	cancel context.CancelFunc
 	done   chan struct{}
 
@@ -79,14 +82,16 @@ func startConsumer(ch consumeChannel, queue, instance string, s *Server) (*AMQPC
 	if err := ch.Qos(maxInFlight, 0, false); err != nil {
 		return nil, fmt.Errorf("set qos: %w", err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	deliveries, err := ch.ConsumeWithContext(ctx, queue, "", false, true, false, false, nil)
+	// Stopped by an explicit Cancel in Close: cancelling via the consume
+	// context races amqp091's own cancel against Channel.Close and can hang.
+	tag := "logos-mgmt-" + protocol.NewULID()
+	deliveries, err := ch.ConsumeWithContext(context.Background(), queue, tag, false, true, false, false, nil)
 	if err != nil {
-		cancel()
 		return nil, fmt.Errorf("consume %q: %w", queue, err)
 	}
-	c := &AMQPConsumer{ch: ch, srv: s, cancel: cancel, done: make(chan struct{})}
-	go c.loop(ctx, deliveries)
+	ctx, cancel := context.WithCancel(context.Background())
+	c := &AMQPConsumer{ch: ch, srv: s, tag: tag, ctx: ctx, cancel: cancel, done: make(chan struct{})}
+	go c.loop(deliveries)
 	return c, nil
 }
 
@@ -94,37 +99,37 @@ func startConsumer(ch consumeChannel, queue, instance string, s *Server) (*AMQPC
 // closes the delivery stream (channel or connection loss).
 func (c *AMQPConsumer) Done() <-chan struct{} { return c.done }
 
-// Close stops consuming, waits for in-flight requests to finish, and releases
-// the channel.
+// Close stops consuming, cancels and waits for in-flight requests, and
+// releases the channel.
 func (c *AMQPConsumer) Close() error {
 	c.once.Do(func() {
 		c.cancel()
+		// Closes the delivery stream; fails harmlessly on a dead channel.
+		_ = c.ch.Cancel(c.tag, false)
 		<-c.done
 		c.closeErr = c.ch.Close()
 	})
 	return c.closeErr
 }
 
-func (c *AMQPConsumer) loop(ctx context.Context, deliveries <-chan amqp.Delivery) {
+// loop serves deliveries until the stream closes (Cancel, channel or
+// connection loss). Deliveries arriving after Close are acked unanswered.
+func (c *AMQPConsumer) loop(deliveries <-chan amqp.Delivery) {
 	defer close(c.done)
 	defer c.inflight.Wait()
 	defer c.cancel()
 	sem := make(chan struct{}, maxInFlight)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case d, ok := <-deliveries:
-			if !ok {
-				return
-			}
-			sem <- struct{}{}
-			c.inflight.Add(1)
-			go func() {
-				defer func() { <-sem; c.inflight.Done() }()
-				c.handle(ctx, d)
-			}()
+	for d := range deliveries {
+		if c.ctx.Err() != nil {
+			_ = d.Ack(false)
+			continue
 		}
+		sem <- struct{}{}
+		c.inflight.Add(1)
+		go func() {
+			defer func() { <-sem; c.inflight.Done() }()
+			c.handle(c.ctx, d)
+		}()
 	}
 }
 

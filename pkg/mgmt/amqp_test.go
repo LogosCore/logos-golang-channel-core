@@ -25,6 +25,7 @@ type fakeChannel struct {
 	published  []amqp.Publishing
 	pubKeys    []string
 	closed     bool
+	cancelled  bool
 	declareErr error
 	deliveries chan amqp.Delivery
 }
@@ -64,6 +65,16 @@ func (f *fakeChannel) PublishWithContext(_ context.Context, _, key string, _, _ 
 	defer f.mu.Unlock()
 	f.published = append(f.published, msg)
 	f.pubKeys = append(f.pubKeys, key)
+	return nil
+}
+
+func (f *fakeChannel) Cancel(string, bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.cancelled {
+		f.cancelled = true
+		close(f.deliveries) // the broker closes the stream on cancel-ok
+	}
 	return nil
 }
 
@@ -174,7 +185,7 @@ func TestAMQPConsumerDoneOnDeliveryClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	close(fch.deliveries)
+	fch.Cancel("", false) // broker-side stream close
 	select {
 	case <-c.Done():
 	case <-time.After(2 * time.Second):
