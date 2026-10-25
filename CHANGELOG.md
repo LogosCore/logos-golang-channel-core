@@ -27,6 +27,9 @@
   batches published to `logos.module.logs`. `Hub.Handler` wraps a
   `slog.Handler`. `mgmt.Server.ServeLogs` dispatches the RPCs and declares the
   `logs` capability; `module.Config.Logs` wires it per broker session.
+- **Logging** (`pkg/logging`): `New` builds a module's slog logger in `json`
+  (default) or `text`, teed into a `logstream.Hub`; `Headers` logs all HTTP
+  headers as a `headers` group.
 - **BREAKING (lifecycle):** removed `StatusDraining`. Heartbeat health is only
   `healthy` / `degraded`; module-specific states such as an admin pause belong
   in the module's management status values.
