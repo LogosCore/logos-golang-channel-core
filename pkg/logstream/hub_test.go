@@ -73,7 +73,7 @@ func newHub(t *testing.T, opts ...Option) (*Hub, *fakePub) {
 func TestBacklogThenLiveFilteredByLevel(t *testing.T) {
 	h, p := newHub(t)
 	h.Record(rec(protocol.LogInfo, "old-1"))
-	h.Record(rec(protocol.LogDebug, "old-debug")) // not kept: nobody streams debug
+	h.Record(rec(protocol.LogDebug, "old-debug")) // below the stream's level
 	h.Record(rec(protocol.LogWarn, "old-2"))
 
 	if _, err := h.Start(protocol.LogsStartRequest{StreamID: "s1", MinLevel: protocol.LogWarn, Backlog: 10}); err != nil {
@@ -94,6 +94,23 @@ func TestBacklogThenLiveFilteredByLevel(t *testing.T) {
 		if b.Seq != int64(i+1) {
 			t.Errorf("batch %d seq = %d", i, b.Seq)
 		}
+	}
+}
+
+func TestDebugBacklogWhenModuleLogsDebug(t *testing.T) {
+	h, p := newHub(t)
+	// The module's own level is debug: records are built with no stream open.
+	log := slog.New(h.Handler(slog.NewTextHandler(discard{}, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	log.Debug("request served", "path", "/x")
+	log.Info("startup")
+
+	if _, err := h.Start(protocol.LogsStartRequest{StreamID: "s1", MinLevel: protocol.LogDebug, Backlog: 10}); err != nil {
+		t.Fatal(err)
+	}
+	h.Stop("s1")
+	bs := p.waitFor(t, "stop", ended(protocol.LogEndStopped))
+	if got := messages(bs); len(got) != 2 || got[0] != "request served" || got[1] != "startup" {
+		t.Fatalf("backlog = %v, want the debug record too", got)
 	}
 }
 

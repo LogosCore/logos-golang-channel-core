@@ -118,14 +118,13 @@ func (h *Hub) Record(r protocol.LogRecord) {
 	if h.closed {
 		return
 	}
-	// Debug goes to the ring only while someone streams it: the ring backs
-	// new streams, which default to info.
-	if r.Level.Rank() >= protocol.LogInfo.Rank() || h.debug > 0 {
-		h.ring[h.next] = r
-		h.next = (h.next + 1) % len(h.ring)
-		if h.next == 0 {
-			h.full = true
-		}
+	// The ring keeps whatever the logger produced: debug arrives only when
+	// the module logs at debug or a stream asks for it (Handler.Enabled), and
+	// new streams pick their level from it.
+	h.ring[h.next] = r
+	h.next = (h.next + 1) % len(h.ring)
+	if h.next == 0 {
+		h.full = true
 	}
 	now := h.now()
 	for _, s := range h.streams {
