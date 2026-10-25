@@ -223,8 +223,11 @@ func TestSlogHandler(t *testing.T) {
 	if len(recs) != 2 || recs[0].Level != protocol.LogDebug || recs[1].Level != protocol.LogInfo {
 		t.Fatalf("records = %+v", recs)
 	}
+	// Groups stay nested, as the module's JSON output has them.
 	a := recs[1].Attrs
-	if a["component"] != "http" || a["req.status"] != int64(200) || a["req.err"] != "boom" || a["req.t.ms"] != int64(12) {
+	req, _ := a["req"].(map[string]any)
+	tm, _ := req["t"].(map[string]any)
+	if a["component"] != "http" || req["status"] != int64(200) || req["err"] != "boom" || tm["ms"] != int64(12) {
 		t.Errorf("attrs = %+v", a)
 	}
 	if h.WantsDebug() {
@@ -239,3 +242,34 @@ func (discard) Write(b []byte) (int, error) { return len(b), nil }
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+func TestSlogHandlerKeepsStructure(t *testing.T) {
+	h, p := newHub(t)
+	log := slog.New(h.Handler(slog.NewJSONHandler(discard{}, nil)))
+	if _, err := h.Start(protocol.LogsStartRequest{StreamID: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	type pair struct {
+		A int `json:"a"`
+	}
+	log.Info("x",
+		slog.Group("", "inlined", 1), // an empty group key inlines its members
+		slog.Group("empty"),          // empty groups are left out
+		"obj", pair{A: 2},            // JSON-marshalable values keep their shape
+		"list", []string{"p", "q"},
+	)
+	h.Stop("s1")
+	bs := p.waitFor(t, "stop", ended(protocol.LogEndStopped))
+	var a map[string]any
+	for _, b := range bs {
+		for _, r := range b.Records {
+			a = r.Attrs
+		}
+	}
+	if a["inlined"] != int64(1) || a["obj"] != (pair{A: 2}) || len(a["list"].([]string)) != 2 {
+		t.Errorf("attrs = %#v", a)
+	}
+	if _, ok := a["empty"]; ok {
+		t.Error("empty group recorded")
+	}
+}

@@ -2,6 +2,7 @@ package logstream
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -19,14 +20,22 @@ func (h *Hub) Handler(next slog.Handler) slog.Handler {
 type handler struct {
 	hub    *Hub
 	next   slog.Handler
-	attrs  []slog.Attr // from WithAttrs, keys already group-qualified
-	prefix string      // open groups, "a.b."
+	attrs  []groupedAttr // from WithAttrs, with the groups open at the time
+	groups []string      // groups opened by WithGroup
+}
+
+type groupedAttr struct {
+	groups []string
+	attr   slog.Attr
 }
 
 func (h *handler) Enabled(ctx context.Context, l slog.Level) bool {
 	return h.next.Enabled(ctx, l) || l >= slog.LevelInfo || h.hub.WantsDebug()
 }
 
+// Handle passes r on and records it for the hub with the module's own
+// structure: groups stay nested objects, exactly as a JSON handler would
+// write them.
 func (h *handler) Handle(ctx context.Context, r slog.Record) error {
 	var err error
 	if h.next.Enabled(ctx, r.Level) {
@@ -36,22 +45,16 @@ func (h *handler) Handle(ctx context.Context, r slog.Record) error {
 	if rec.Time.IsZero() {
 		rec.Time = time.Now()
 	}
-	attrs := map[string]any{}
-	add := func(key string, v slog.Value) bool {
-		if len(attrs) >= protocol.MaxLogAttrs {
-			return false
-		}
-		addAttr(attrs, key, v)
-		return true
+	b := &attrBuilder{root: map[string]any{}, budget: protocol.MaxLogAttrs}
+	for _, ga := range h.attrs {
+		b.add(ga.groups, ga.attr)
 	}
-	for _, a := range h.attrs {
-		if !add(a.Key, a.Value) {
-			break
-		}
-	}
-	r.Attrs(func(a slog.Attr) bool { return add(h.prefix+a.Key, a.Value) })
-	if len(attrs) > 0 {
-		rec.Attrs = attrs
+	r.Attrs(func(a slog.Attr) bool {
+		b.add(h.groups, a)
+		return b.budget > 0
+	})
+	if len(b.root) > 0 {
+		rec.Attrs = b.root
 	}
 	h.hub.Record(rec)
 	return err
@@ -60,9 +63,9 @@ func (h *handler) Handle(ctx context.Context, r slog.Record) error {
 func (h *handler) WithAttrs(as []slog.Attr) slog.Handler {
 	c := *h
 	c.next = h.next.WithAttrs(as)
-	c.attrs = append([]slog.Attr(nil), h.attrs...)
+	c.attrs = append([]groupedAttr(nil), h.attrs...)
 	for _, a := range as {
-		c.attrs = append(c.attrs, slog.Attr{Key: h.prefix + a.Key, Value: a.Value})
+		c.attrs = append(c.attrs, groupedAttr{groups: h.groups, attr: a})
 	}
 	return &c
 }
@@ -73,45 +76,76 @@ func (h *handler) WithGroup(name string) slog.Handler {
 	}
 	c := *h
 	c.next = h.next.WithGroup(name)
-	c.prefix = h.prefix + name + "."
+	c.groups = append(append([]string(nil), h.groups...), name)
 	return &c
 }
 
-// addAttr flattens groups into dotted keys and renders values as JSON-safe
-// scalars.
-func addAttr(out map[string]any, key string, v slog.Value) {
-	v = v.Resolve()
-	switch v.Kind() {
-	case slog.KindGroup:
-		for _, a := range v.Group() {
-			k := a.Key
-			if key != "" {
-				k = key + "." + k
-			}
-			addAttr(out, k, a.Value)
+// attrBuilder assembles nested attrs, keeping at most budget leaf values.
+type attrBuilder struct {
+	root   map[string]any
+	budget int
+}
+
+// add puts a under the given groups, following slog's rules: an empty key on
+// a group inlines its members, empty groups are left out.
+func (b *attrBuilder) add(groups []string, a slog.Attr) {
+	v := a.Value.Resolve()
+	if v.Kind() == slog.KindGroup {
+		members := v.Group()
+		if len(members) == 0 {
+			return
+		}
+		if a.Key != "" {
+			groups = append(append([]string(nil), groups...), a.Key)
+		}
+		for _, m := range members {
+			b.add(groups, m)
 		}
 		return
-	case slog.KindString:
-		out[key] = v.String()
-	case slog.KindInt64:
-		out[key] = v.Int64()
-	case slog.KindUint64:
-		out[key] = v.Uint64()
-	case slog.KindFloat64:
-		out[key] = v.Float64()
-	case slog.KindBool:
-		out[key] = v.Bool()
-	case slog.KindDuration:
-		out[key] = v.Duration().String()
-	case slog.KindTime:
-		out[key] = v.Time().Format(time.RFC3339Nano)
-	default:
-		if err, ok := v.Any().(error); ok {
-			out[key] = err.Error()
-		} else {
-			out[key] = fmt.Sprint(v.Any())
-		}
 	}
+	if a.Key == "" || b.budget <= 0 {
+		return
+	}
+	node := b.root
+	for _, g := range groups {
+		child, ok := node[g].(map[string]any)
+		if !ok {
+			child = map[string]any{}
+			node[g] = child
+		}
+		node = child
+	}
+	node[a.Key] = value(v)
+	b.budget--
+}
+
+// value renders v as the JSON handler would: scalars as they are, errors as
+// their message, other values as themselves when they marshal to JSON.
+func value(v slog.Value) any {
+	switch v.Kind() {
+	case slog.KindString:
+		return v.String()
+	case slog.KindInt64:
+		return v.Int64()
+	case slog.KindUint64:
+		return v.Uint64()
+	case slog.KindFloat64:
+		return v.Float64()
+	case slog.KindBool:
+		return v.Bool()
+	case slog.KindDuration:
+		return int64(v.Duration()) // as slog's JSON handler: nanoseconds
+	case slog.KindTime:
+		return v.Time().Format(time.RFC3339Nano)
+	}
+	x := v.Any()
+	if err, ok := x.(error); ok {
+		return err.Error()
+	}
+	if _, err := json.Marshal(x); err == nil {
+		return x
+	}
+	return fmt.Sprint(x)
 }
 
 func level(l slog.Level) protocol.LogLevel {
