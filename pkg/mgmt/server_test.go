@@ -528,3 +528,11 @@ func TestDedupeIsPerAction(t *testing.T) {
 		t.Errorf("calls = %v, want each action once", calls)
 	}
 }
+
+func TestNormalizeStringMap(t *testing.T) {
+	f := protocol.FieldSpec{Key: "headers", Type: protocol.FieldStringMap}
+	got, ok := normalize(f, map[string]any{"X-A": "1"}).(map[string]string)
+	if !ok || got["X-A"] != "1" {
+		t.Errorf("normalize = %#v", got)
+	}
+}

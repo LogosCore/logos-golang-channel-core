@@ -9,8 +9,8 @@
 // a Server on the module's RabbitMQ rpc_queue.
 //
 // Values handed to callbacks are normalized by field type: int and bytes are
-// int64, number is float64, string_list is []string, everything else is the
-// decoded JSON value.
+// int64, number is float64, string_list is []string, string_map is
+// map[string]string, everything else is the decoded JSON value.
 package mgmt
 
 import (
@@ -581,6 +581,15 @@ func normalize(f protocol.FieldSpec, v any) any {
 			for _, it := range items {
 				s, _ := it.(string)
 				out = append(out, s)
+			}
+			return out
+		}
+	case protocol.FieldStringMap:
+		if entries, ok := v.(map[string]any); ok {
+			out := make(map[string]string, len(entries))
+			for k, it := range entries {
+				s, _ := it.(string)
+				out[k] = s
 			}
 			return out
 		}

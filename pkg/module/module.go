@@ -18,7 +18,7 @@ import (
 	"github.com/logoscore/logos-golang-channel-core/v2/pkg/lifecycle"
 	"github.com/logoscore/logos-golang-channel-core/v2/pkg/logstream"
 	"github.com/logoscore/logos-golang-channel-core/v2/pkg/mgmt"
-	protocol "github.com/logoscore/logos-golang-protocol/protocol"
+	"github.com/logoscore/logos-golang-protocol/protocol"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -46,6 +46,10 @@ type Config struct {
 	// logs live: Run serves it on the rpc_queue (declaring the logs
 	// capability) and attaches a publisher for each broker session.
 	Logs *logstream.Hub
+	// Connection, when set, is the minion connection schema declared at
+	// registration (channels only): what minions are given to reach this
+	// channel.
+	Connection *protocol.ConnectionSchema
 	// Options are extra lifecycle options (e.g. WithStatus, WithMetrics).
 	Options []lifecycle.Option
 	// Logger receives session events: registered/deregistered at info,
@@ -83,6 +87,11 @@ func Run(ctx context.Context, cfg Config) error {
 			return errors.New("module: Logs requires Management (it is served on the rpc_queue)")
 		}
 		cfg.Management.ServeLogs(cfg.Logs)
+	}
+	if cfg.Connection != nil {
+		if err := protocol.ValidateConnectionSchema(*cfg.Connection); err != nil {
+			return fmt.Errorf("module: invalid connection schema: %w", err)
+		}
 	}
 
 	backoff := minBackoff
@@ -125,6 +134,9 @@ func runSession(ctx context.Context, cfg Config, logger func() *slog.Logger) err
 	// Core may call the rpc_queue as soon as it acks the register, so the
 	// consumer must be up first. It is closed after the deregister.
 	opts := cfg.Options
+	if cfg.Connection != nil {
+		opts = append([]lifecycle.Option{lifecycle.WithConnection(*cfg.Connection)}, opts...)
+	}
 	var mgmtDone <-chan struct{}
 	if cfg.Management != nil {
 		consumer, err := mgmt.NewAMQPConsumer(conn, id.RPCQueue, id.Instance, cfg.Management)

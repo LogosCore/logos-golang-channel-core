@@ -117,6 +117,7 @@ type Client struct {
 	status  func() Status
 	metrics MetricsFunc
 	mgmt    *mgmt.Server
+	conn    *protocol.ConnectionSchema
 
 	deregisterTimeout time.Duration
 	// newTicker is injectable so the Run loop is deterministically testable.
@@ -149,6 +150,13 @@ func WithMetrics(fn MetricsFunc) Option {
 // rpc_queue (mgmt.NewAMQPConsumer) before running the Client.
 func WithManagement(s *mgmt.Server) Option {
 	return func(c *Client) { c.mgmt = s }
+}
+
+// WithConnection declares the minion connection schema at registration: the
+// parameters minions are given to reach this channel. Core refuses a register
+// whose schema is invalid (protocol.ValidateConnectionSchema).
+func WithConnection(s protocol.ConnectionSchema) Option {
+	return func(c *Client) { c.conn = &s }
 }
 
 // WithDeregisterTimeout overrides how long Run waits for the shutdown
@@ -192,6 +200,7 @@ type registerRequest struct {
 
 	Management      *protocol.ManagementManifest `json:"management,omitempty"`
 	AppliedRevision *int64                       `json:"applied_revision,omitempty"`
+	Connection      *protocol.ConnectionSchema   `json:"connection,omitempty"`
 }
 
 type registerReply struct {
@@ -236,6 +245,7 @@ func (c *Client) Register(ctx context.Context) (BootstrapConfig, error) {
 		Version:     c.id.Version,
 		RPCQueue:    c.id.RPCQueue,
 		Description: c.id.Description,
+		Connection:  c.conn,
 	}
 	if c.mgmt != nil {
 		m := c.mgmt.Manifest()

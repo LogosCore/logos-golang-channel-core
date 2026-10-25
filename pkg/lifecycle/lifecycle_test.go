@@ -483,7 +483,7 @@ func TestRegisterWithoutManagementOmitsFields(t *testing.T) {
 	for _, env := range fp.calls() {
 		var raw map[string]any
 		_ = json.Unmarshal(env.Payload, &raw)
-		for _, k := range []string{"management", "applied_revision"} {
+		for _, k := range []string{"management", "applied_revision", "connection"} {
 			if _, ok := raw[k]; ok {
 				t.Errorf("%s payload has %q without management", env.Type, k)
 			}
@@ -520,6 +520,28 @@ func TestRegisterSendsManifestAndAppliesConfig(t *testing.T) {
 	var m protocol.ManagementManifest
 	if err := json.Unmarshal(raw["management"], &m); err != nil || len(m.Properties) != 1 || m.Properties[0].Key != "log_level" {
 		t.Errorf("management = %s (%v)", raw["management"], err)
+	}
+}
+
+func TestRegisterSendsConnectionSchema(t *testing.T) {
+	fp := &fakePublisher{replyFn: func(req protocol.Envelope) (protocol.ReplyEnvelope, error) {
+		return okReply(t, req, registerReply{Instance: "http-1", Registered: true}), nil
+	}}
+	schema := protocol.ConnectionSchema{
+		SchemaVersion: protocol.ConnectionSchemaV1,
+		Version:       1,
+		Fields:        []protocol.FieldSpec{{Key: "base_url", Type: protocol.FieldURL, Required: true}},
+	}
+	if _, err := NewClient(fp, testIdentity(), WithConnection(schema)).Register(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(fp.calls()[0].Payload, &raw); err != nil {
+		t.Fatal(err)
+	}
+	var got protocol.ConnectionSchema
+	if err := json.Unmarshal(raw["connection"], &got); err != nil || got.Version != 1 || len(got.Fields) != 1 || got.Fields[0].Key != "base_url" {
+		t.Errorf("connection = %s (%v)", raw["connection"], err)
 	}
 }
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.2.0
+
+- **Minion connection schema**: `module.Config.Connection` (validated by `Run`)
+  and `lifecycle.WithConnection` declare a `protocol.ConnectionSchema` in
+  `module.register` under `connection`.
+- Depends on protocol v0.4.0.
+- **`string_map` fields** reach management callbacks as `map[string]string`.
+
 ## v2.1.0
 
 - **Module management** (`pkg/mgmt`): `Server` built from a
