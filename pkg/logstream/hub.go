@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	protocol "github.com/logoscore/logos-golang-protocol/protocol"
@@ -77,8 +78,11 @@ type Hub struct {
 	full    bool
 	streams map[string]*stream
 	pub     Publisher
-	debug   int // streams with min level debug
 	closed  bool
+
+	// debug counts streams at min level debug. Atomic so WantsDebug, which a
+	// logger asks on every debug call, never takes mu.
+	debug atomic.Int32
 
 	wg sync.WaitGroup // stream goroutines
 }
@@ -102,17 +106,11 @@ func New(instance string, opts ...Option) *Hub {
 
 // WantsDebug reports whether a stream asked for debug records, so a logger
 // can emit them even when its own level is higher.
-func (h *Hub) WantsDebug() bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.debug > 0
-}
+func (h *Hub) WantsDebug() bool { return h.debug.Load() > 0 }
 
 // Record adds r to the ring buffer and to every stream whose level admits it.
 func (h *Hub) Record(r protocol.LogRecord) {
-	if len(r.Message) > protocol.MaxLogMessageBytes {
-		r.Message = r.Message[:protocol.MaxLogMessageBytes] + "…"
-	}
+	r.Message = Truncate(r.Message, protocol.MaxLogMessageBytes)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.closed {
@@ -177,7 +175,7 @@ func (h *Hub) takeStreams() []*stream {
 		out = append(out, s)
 		delete(h.streams, id)
 	}
-	h.debug = 0
+	h.debug.Store(0)
 	return out
 }
 
@@ -232,12 +230,13 @@ func (h *Hub) Start(req protocol.LogsStartRequest) (protocol.LogsStartReply, err
 	h.streams[s.id] = s
 	h.recount()
 	pub := h.pub
+	// Added under mu, so a Close that takes this stream also waits for it.
+	h.wg.Add(1)
 	h.mu.Unlock()
 
 	if evicted != nil {
 		evicted.end(protocol.LogEndReplaced)
 	}
-	h.wg.Add(1)
 	go func() {
 		defer h.wg.Done()
 		s.run(pub, backlog, h.flush, h.leaseCheck)
@@ -277,12 +276,13 @@ func (h *Hub) remove(s *stream) {
 
 // recount refreshes the debug-stream count; h.mu must be held.
 func (h *Hub) recount() {
-	h.debug = 0
+	var n int32
 	for _, s := range h.streams {
 		if s.min == protocol.LogDebug {
-			h.debug++
+			n++
 		}
 	}
+	h.debug.Store(n)
 }
 
 func (h *Hub) oldest() *stream {
@@ -301,15 +301,16 @@ func (h *Hub) backlog(minLevel protocol.LogLevel, n int) []protocol.LogRecord {
 	if n <= 0 {
 		return nil
 	}
-	var all []protocol.LogRecord
+	size := h.next
 	if h.full {
-		all = append(all, h.ring[h.next:]...)
+		size = len(h.ring)
 	}
-	all = append(all, h.ring[:h.next]...)
-	out := make([]protocol.LogRecord, 0, min(n, len(all)))
-	for i := len(all) - 1; i >= 0 && len(out) < n; i-- {
-		if all[i].Level.Rank() >= minLevel.Rank() {
-			out = append(out, all[i])
+	// Walk the ring newest first, in place.
+	out := make([]protocol.LogRecord, 0, min(n, size))
+	for k := 1; k <= size && len(out) < n; k++ {
+		r := h.ring[(h.next-k+len(h.ring))%len(h.ring)]
+		if r.Level.Rank() >= minLevel.Rank() {
+			out = append(out, r)
 		}
 	}
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {

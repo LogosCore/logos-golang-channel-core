@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+	"unicode/utf8"
 
 	protocol "github.com/logoscore/logos-golang-protocol/protocol"
 )
@@ -120,11 +121,13 @@ func (b *attrBuilder) add(groups []string, a slog.Attr) {
 }
 
 // value renders v as the JSON handler would: scalars as they are, errors as
-// their message, other values as themselves when they marshal to JSON.
+// their message, other values as their JSON. Structured values are marshalled
+// here, once, so the record never shares a map or slice the caller may go on
+// mutating. Strings and JSON longer than MaxLogValueBytes are truncated.
 func value(v slog.Value) any {
 	switch v.Kind() {
 	case slog.KindString:
-		return v.String()
+		return Truncate(v.String(), protocol.MaxLogValueBytes)
 	case slog.KindInt64:
 		return v.Int64()
 	case slog.KindUint64:
@@ -140,12 +143,30 @@ func value(v slog.Value) any {
 	}
 	x := v.Any()
 	if err, ok := x.(error); ok {
-		return err.Error()
+		return Truncate(err.Error(), protocol.MaxLogValueBytes)
 	}
-	if _, err := json.Marshal(x); err == nil {
-		return x
+	raw, err := json.Marshal(x)
+	if err != nil {
+		return Truncate(fmt.Sprint(x), protocol.MaxLogValueBytes)
 	}
-	return fmt.Sprint(x)
+	if len(raw) > protocol.MaxLogValueBytes {
+		// Cut JSON is no longer JSON; keep it readable as a string.
+		return Truncate(string(raw), protocol.MaxLogValueBytes)
+	}
+	return json.RawMessage(raw)
+}
+
+// Truncate shortens s to at most n bytes, on a UTF-8 boundary, marking the cut
+// with "…".
+func Truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
 }
 
 func level(l slog.Level) protocol.LogLevel {

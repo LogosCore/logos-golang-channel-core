@@ -67,7 +67,7 @@ type Server struct {
 	// process is still starting, so restart-mode values from core (normally the
 	// register reply's config) are adopted as the startup values.
 	booted bool
-	source   protocol.Source
+	source protocol.Source
 
 	applyMu sync.Mutex // serializes ApplyConfig, including the apply callback
 
@@ -391,9 +391,12 @@ func (s *Server) invoke(ctx context.Context, req protocol.Envelope, r protocol.A
 		return s.errorReply(req, protocol.CodeValidationFailed, err.Error())
 	}
 
-	inv, first := s.claim(r.InvocationID)
+	inv, first := s.claim(r.Action, r.InvocationID)
 	if first {
-		inv.result, inv.err = runAction(ctx, spec, fn, params, r.Actor)
+		// The action outlives the delivery's context: a consumer closed by a
+		// reconnect must not cancel it, or core's retry of the same
+		// invocation would get a false failure. Its own timeout bounds it.
+		inv.result, inv.err = runAction(context.WithoutCancel(ctx), spec, fn, params, r.Actor)
 		close(inv.done)
 	} else {
 		select {
@@ -408,20 +411,30 @@ func (s *Server) invoke(ctx context.Context, req protocol.Envelope, r protocol.A
 	return s.reply(req, protocol.ActionInvokeReply{InvocationID: r.InvocationID, Result: inv.result})
 }
 
-// claim returns the remembered invocation for id, or registers a new one and
-// reports that the caller must run it.
-func (s *Server) claim(id string) (*invocation, bool) {
+// claim returns the remembered invocation of action with id, or registers a
+// new one and reports that the caller must run it. Past dedupeSize the oldest
+// finished invocation is forgotten; running ones are kept, so a retry never
+// runs an action twice.
+func (s *Server) claim(action, id string) (*invocation, bool) {
+	key := action + "\x00" + id
 	s.dedupeMu.Lock()
 	defer s.dedupeMu.Unlock()
-	if inv, ok := s.dedupe[id]; ok {
+	if inv, ok := s.dedupe[key]; ok {
 		return inv, false
 	}
 	inv := &invocation{done: make(chan struct{})}
-	s.dedupe[id] = inv
-	s.order = append(s.order, id)
+	s.dedupe[key] = inv
+	s.order = append(s.order, key)
 	if len(s.order) > dedupeSize {
-		delete(s.dedupe, s.order[0])
-		s.order = s.order[1:]
+		for i, k := range s.order {
+			select {
+			case <-s.dedupe[k].done:
+				delete(s.dedupe, k)
+				s.order = append(s.order[:i:i], s.order[i+1:]...)
+				return inv, true
+			default:
+			}
+		}
 	}
 	return inv, true
 }

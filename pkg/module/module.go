@@ -160,12 +160,14 @@ func runSession(ctx context.Context, cfg Config) error {
 	}()
 
 	logged := loggingPublisher{pub: pub, instance: id.Instance, connClosed: conn.IsClosed, logf: cfg.Logf}
-	if err := lifecycle.NewClient(logged, id, opts...).Run(sessionCtx); err != nil {
-		return err
-	}
+	runErr := lifecycle.NewClient(logged, id, opts...).Run(sessionCtx)
 	if ctx.Err() != nil && cfg.Logs != nil {
-		// Shutting down: tell viewers before the publisher closes.
+		// Shutting down: tell viewers before the publisher closes, whatever
+		// the session's own outcome.
 		cfg.Logs.Close()
+	}
+	if runErr != nil {
+		return runErr
 	}
 	select {
 	case err := <-connLost:

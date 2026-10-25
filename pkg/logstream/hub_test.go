@@ -2,10 +2,13 @@ package logstream
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	protocol "github.com/logoscore/logos-golang-protocol/protocol"
 )
@@ -266,10 +269,42 @@ func TestSlogHandlerKeepsStructure(t *testing.T) {
 			a = r.Attrs
 		}
 	}
-	if a["inlined"] != int64(1) || a["obj"] != (pair{A: 2}) || len(a["list"].([]string)) != 2 {
+	obj, _ := a["obj"].(json.RawMessage)
+	list, _ := a["list"].(json.RawMessage)
+	if a["inlined"] != int64(1) || string(obj) != `{"a":2}` || string(list) != `["p","q"]` {
 		t.Errorf("attrs = %#v", a)
 	}
 	if _, ok := a["empty"]; ok {
 		t.Error("empty group recorded")
+	}
+}
+
+func TestValuesAreSnapshotsAndCapped(t *testing.T) {
+	h, p := newHub(t)
+	log := slog.New(h.Handler(slog.NewJSONHandler(discard{}, nil)))
+	if _, err := h.Start(protocol.LogsStartRequest{StreamID: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	m := map[string]int{"k": 1}
+	log.Info("x", "m", m, "long", strings.Repeat("é", protocol.MaxLogValueBytes))
+	m["k"] = 2 // the caller keeps mutating its map: the record must not see it
+	h.Stop("s1")
+	bs := p.waitFor(t, "stop", ended(protocol.LogEndStopped))
+	a := bs[len(bs)-1].Records[0].Attrs
+	if raw, _ := a["m"].(json.RawMessage); string(raw) != `{"k":1}` {
+		t.Errorf("m = %s, want the value at log time", raw)
+	}
+	long, _ := a["long"].(string)
+	if len(long) > protocol.MaxLogValueBytes+len("…") || !strings.HasSuffix(long, "…") || !utf8.ValidString(long) {
+		t.Errorf("long value: %d bytes, valid UTF-8 %v", len(long), utf8.ValidString(long))
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	if Truncate("abc", 5) != "abc" || Truncate("abcdef", 3) != "abc…" {
+		t.Error("ascii")
+	}
+	if got := Truncate("aéb", 2); got != "a…" { // é is 2 bytes: never split it
+		t.Errorf("Truncate = %q", got)
 	}
 }

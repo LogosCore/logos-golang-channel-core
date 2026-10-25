@@ -483,3 +483,48 @@ func TestServeLogs(t *testing.T) {
 		t.Errorf("stopped = %v", f.stopped)
 	}
 }
+
+func TestActionSurvivesCancelledDelivery(t *testing.T) {
+	s := newTestServer(t)
+	ran := make(chan struct{})
+	s.Action("slow", func(ctx context.Context, _ map[string]any, _ *protocol.Actor) (any, error) {
+		select {
+		case <-time.After(50 * time.Millisecond): // finishes despite the dead delivery
+			close(ran)
+			return "done", nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
+	// The consumer that delivered the request is already gone (reconnect).
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rep := s.Handle(ctx, request(t, protocol.TypeMgmtActionInvoke, protocol.ActionInvokeRequest{InvocationID: "i1", Action: "slow"}))
+	if rep.Status != protocol.StatusOK {
+		t.Fatalf("reply = %+v", rep.Error)
+	}
+	<-ran
+	// Core's retry of the same invocation gets the real outcome.
+	var out protocol.ActionInvokeReply
+	decodeOK(t, invoke(t, s, "i1", "slow", nil), &out)
+	if out.Result != "done" {
+		t.Errorf("retry result = %v", out.Result)
+	}
+}
+
+func TestDedupeIsPerAction(t *testing.T) {
+	s := newTestServer(t)
+	calls := map[string]int{}
+	for _, name := range []string{"drain", "slow"} {
+		s.Action(name, func(context.Context, map[string]any, *protocol.Actor) (any, error) {
+			calls[name]++
+			return name, nil
+		})
+	}
+	decodeOK(t, invoke(t, s, "same-id", "drain", nil), &protocol.ActionInvokeReply{})
+	decodeOK(t, invoke(t, s, "same-id", "slow", nil), &protocol.ActionInvokeReply{})
+	decodeOK(t, invoke(t, s, "same-id", "drain", nil), &protocol.ActionInvokeReply{})
+	if calls["drain"] != 1 || calls["slow"] != 1 {
+		t.Errorf("calls = %v, want each action once", calls)
+	}
+}
