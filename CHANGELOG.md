@@ -21,6 +21,12 @@
   the rpc_queue before registering, heartbeats, deregisters on shutdown, and
   reconnects with exponential backoff (1s → 30s). `RPCQueue(instance)` gives
   the conventional `logos.channel.rpc.<instance>`.
+- **Live log streaming** (`pkg/logstream`): `Hub` with a ring buffer
+  (backlog), leased streams (`mgmt.logs.start` renews, `mgmt.logs.stop`,
+  lease expiry), per-stream level filter and rate limit (drops counted),
+  batches published to `logos.module.logs`. `Hub.Handler` wraps a
+  `slog.Handler`. `mgmt.Server.ServeLogs` dispatches the RPCs and declares the
+  `logs` capability; `module.Config.Logs` wires it per broker session.
 - **BREAKING (lifecycle):** removed `StatusDraining`. Heartbeat health is only
   `healthy` / `degraded`; module-specific states such as an admin pause belong
   in the module's management status values.

@@ -78,6 +78,7 @@ type Server struct {
 	onApply         ApplyFunc
 	actions         map[string]ActionFunc
 	status          StatusFunc
+	logs            LogStreamer
 
 	dedupeMu sync.Mutex
 	dedupe   map[string]*invocation
@@ -125,6 +126,24 @@ func New(manifest protocol.ManagementManifest, opts ...Option) (*Server, error) 
 	return s, nil
 }
 
+// LogStreamer serves live log streaming (logstream.Hub implements it).
+type LogStreamer interface {
+	Start(req protocol.LogsStartRequest) (protocol.LogsStartReply, error)
+	Stop(streamID string)
+}
+
+// ServeLogs serves mgmt.logs.start / mgmt.logs.stop with l and declares
+// protocol.CapabilityLogs in the manifest. Call it before the server is
+// registered with core.
+func (s *Server) ServeLogs(l LogStreamer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.logs = l
+	if !s.manifest.Has(protocol.CapabilityLogs) {
+		s.manifest.Capabilities = append(append([]string(nil), s.manifest.Capabilities...), protocol.CapabilityLogs)
+	}
+}
+
 // OnApply sets the callback that applies live property values.
 func (s *Server) OnApply(fn ApplyFunc) {
 	s.mu.Lock()
@@ -151,7 +170,11 @@ func (s *Server) Status(fn StatusFunc) {
 }
 
 // Manifest returns the declared manifest.
-func (s *Server) Manifest() protocol.ManagementManifest { return s.manifest }
+func (s *Server) Manifest() protocol.ManagementManifest {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.manifest
+}
 
 // AppliedRevision returns the last config revision processed.
 func (s *Server) AppliedRevision() int64 {
@@ -314,9 +337,41 @@ func (s *Server) Handle(ctx context.Context, req protocol.Envelope) protocol.Rep
 		return s.invoke(ctx, req, r)
 	case protocol.TypeMgmtStateGet:
 		return s.reply(req, s.State())
+	case protocol.TypeMgmtLogsStart, protocol.TypeMgmtLogsStop:
+		return s.handleLogs(req)
 	default:
 		return s.errorReply(req, protocol.CodeValidationFailed, fmt.Sprintf("unknown type %q", req.Type))
 	}
+}
+
+// handleLogs serves the log streaming RPCs.
+func (s *Server) handleLogs(req protocol.Envelope) protocol.ReplyEnvelope {
+	s.mu.RLock()
+	l := s.logs
+	s.mu.RUnlock()
+	if l == nil {
+		return s.errorReply(req, protocol.CodeNotFound, "log streaming is not supported")
+	}
+	if req.Type == protocol.TypeMgmtLogsStop {
+		var r protocol.LogsStopRequest
+		if err := decode(req.Payload, &r); err != nil {
+			return s.errorReply(req, protocol.CodeValidationFailed, "invalid payload: "+err.Error())
+		}
+		l.Stop(r.StreamID)
+		return s.reply(req, r)
+	}
+	var r protocol.LogsStartRequest
+	if err := decode(req.Payload, &r); err != nil {
+		return s.errorReply(req, protocol.CodeValidationFailed, "invalid payload: "+err.Error())
+	}
+	if err := r.Validate(); err != nil {
+		return s.errorReply(req, protocol.CodeValidationFailed, err.Error())
+	}
+	rep, err := l.Start(r)
+	if err != nil {
+		return s.errorReply(req, protocol.CodeInternalError, err.Error())
+	}
+	return s.reply(req, rep)
 }
 
 // invoke validates and runs an action, deduplicating on InvocationID.

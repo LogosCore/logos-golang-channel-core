@@ -440,3 +440,46 @@ func TestConcurrentUse(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+type fakeLogs struct {
+	started []protocol.LogsStartRequest
+	stopped []string
+}
+
+func (f *fakeLogs) Start(r protocol.LogsStartRequest) (protocol.LogsStartReply, error) {
+	f.started = append(f.started, r)
+	return protocol.LogsStartReply{StreamID: r.StreamID, LeaseSeconds: 30}, nil
+}
+
+func (f *fakeLogs) Stop(id string) { f.stopped = append(f.stopped, id) }
+
+func TestServeLogs(t *testing.T) {
+	s := newTestServer(t)
+	wantError(t, s.Handle(context.Background(), request(t, protocol.TypeMgmtLogsStart,
+		protocol.LogsStartRequest{StreamID: "s1"})), protocol.CodeNotFound)
+	if s.Manifest().Has(protocol.CapabilityLogs) {
+		t.Fatal("logs capability declared before ServeLogs")
+	}
+
+	f := &fakeLogs{}
+	s.ServeLogs(f)
+	s.ServeLogs(f) // declares the capability once
+	if caps := s.Manifest().Capabilities; len(caps) != 1 || caps[0] != protocol.CapabilityLogs {
+		t.Fatalf("capabilities = %v", caps)
+	}
+
+	var rep protocol.LogsStartReply
+	decodeOK(t, s.Handle(context.Background(), request(t, protocol.TypeMgmtLogsStart,
+		protocol.LogsStartRequest{StreamID: "s1", MinLevel: protocol.LogDebug})), &rep)
+	if rep.StreamID != "s1" || rep.LeaseSeconds != 30 || f.started[0].MinLevel != protocol.LogDebug {
+		t.Errorf("start reply = %+v, started = %+v", rep, f.started)
+	}
+	wantError(t, s.Handle(context.Background(), request(t, protocol.TypeMgmtLogsStart,
+		protocol.LogsStartRequest{StreamID: "bad id"})), protocol.CodeValidationFailed)
+
+	decodeOK(t, s.Handle(context.Background(), request(t, protocol.TypeMgmtLogsStop,
+		protocol.LogsStopRequest{StreamID: "s1"})), &protocol.LogsStopRequest{})
+	if len(f.stopped) != 1 || f.stopped[0] != "s1" {
+		t.Errorf("stopped = %v", f.stopped)
+	}
+}

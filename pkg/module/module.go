@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/logoscore/logos-golang-channel-core/v2/pkg/lifecycle"
+	"github.com/logoscore/logos-golang-channel-core/v2/pkg/logstream"
 	"github.com/logoscore/logos-golang-channel-core/v2/pkg/mgmt"
 	protocol "github.com/logoscore/logos-golang-protocol/protocol"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -41,6 +42,10 @@ type Config struct {
 	// registration. Nil runs lifecycle only; core then cannot manage the
 	// instance.
 	Management *mgmt.Server
+	// Logs, when set together with Management, lets core tail this module's
+	// logs live: Run serves it on the rpc_queue (declaring the logs
+	// capability) and attaches a publisher for each broker session.
+	Logs *logstream.Hub
 	// Options are extra lifecycle options (e.g. WithStatus, WithMetrics).
 	Options []lifecycle.Option
 	// Logf receives session events (registered, rejected, reconnecting).
@@ -68,6 +73,12 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	if cfg.Logf == nil {
 		cfg.Logf = log.Printf
+	}
+	if cfg.Logs != nil {
+		if cfg.Management == nil {
+			return errors.New("module: Logs requires Management (it is served on the rpc_queue)")
+		}
+		cfg.Management.ServeLogs(cfg.Logs)
 	}
 
 	backoff := minBackoff
@@ -118,6 +129,17 @@ func runSession(ctx context.Context, cfg Config) error {
 		}
 		defer consumer.Close()
 		mgmtDone = consumer.Done()
+		if cfg.Logs != nil {
+			lp, err := logstream.NewAMQPPublisher(conn)
+			if err != nil {
+				return fmt.Errorf("open log publisher: %w", err)
+			}
+			defer lp.Close()
+			cfg.Logs.Attach(lp)
+			// Streams die with the session; core's lease renewal restarts
+			// them on the next one.
+			defer cfg.Logs.Detach()
+		}
 		opts = append([]lifecycle.Option{lifecycle.WithManagement(cfg.Management)}, opts...)
 	}
 
@@ -140,6 +162,10 @@ func runSession(ctx context.Context, cfg Config) error {
 	logged := loggingPublisher{pub: pub, instance: id.Instance, connClosed: conn.IsClosed, logf: cfg.Logf}
 	if err := lifecycle.NewClient(logged, id, opts...).Run(sessionCtx); err != nil {
 		return err
+	}
+	if ctx.Err() != nil && cfg.Logs != nil {
+		// Shutting down: tell viewers before the publisher closes.
+		cfg.Logs.Close()
 	}
 	select {
 	case err := <-connLost:
