@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/logoscore/logos-golang-channel-core/v2/pkg/profile"
+	"github.com/logoscore/logos-golang-channel-core/v3/pkg/profile"
 )
 
 // KeyValue holds a generated noise key-value pair.

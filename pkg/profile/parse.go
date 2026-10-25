@@ -3,7 +3,7 @@ package profile
 import (
 	"fmt"
 
-	coreerrors "github.com/logoscore/logos-golang-channel-core/v2/pkg/errors"
+	coreerrors "github.com/logoscore/logos-golang-channel-core/v3/pkg/errors"
 	"gopkg.in/yaml.v3"
 )
 

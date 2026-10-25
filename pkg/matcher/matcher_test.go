@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/logoscore/logos-golang-channel-core/v2/pkg/cache"
-	"github.com/logoscore/logos-golang-channel-core/v2/pkg/profile"
+	"github.com/logoscore/logos-golang-channel-core/v3/pkg/cache"
+	"github.com/logoscore/logos-golang-channel-core/v3/pkg/profile"
 )
 
 func p(id int32, enabled bool, hint string) profile.Profile {

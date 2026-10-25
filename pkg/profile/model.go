@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/logoscore/logos-golang-channel-core/v2/pkg/transform"
+	"github.com/logoscore/logos-golang-channel-core/v3/pkg/transform"
 )
 
 func marshalJSON(v any) ([]byte, error) { return json.Marshal(v) }

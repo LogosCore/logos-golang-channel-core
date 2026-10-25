@@ -1,5 +1,30 @@
 # Changelog
 
+## v3.0.0
+
+The control plane every module type shares moved to the new
+`github.com/logoscore/logos-golang-module-core`, so other module types (minion
+factories) can build on it without this SDK. Import path is now
+`github.com/logoscore/logos-golang-channel-core/v3`.
+
+- **Moved to module-core**: `lifecycle`, `module`, `mgmt`, `logstream`,
+  `logging`. Import them from `github.com/logoscore/logos-golang-module-core/pkg/<name>`.
+  Changes there:
+  - `mgmt.NewAMQPConsumer` takes the exchange (`mgmt.RPCExchange(module_type)`).
+  - `module.RPCQueue` takes the module type.
+  - `module.Run` requires `Identity.ModuleType`.
+  - Management replies carry the instance in their source.
+- **New `pkg/channel`**: `channel.Run(ctx, channel.Config)` replaces
+  `module.Run` for channels. It defaults module_type to `channel` and holds
+  `Connection` (formerly `module.Config.Connection`). `channel.WithConnection`
+  replaces `lifecycle.WithConnection`, and `channel.RPCQueue(instance)` replaces
+  `module.RPCQueue(instance)`.
+- **`pkg/errors`**: `Error`, `New`, `Wrap`, `Code` and the shared codes are now
+  module-core's (type alias). The channel codes stay here.
+- **Removed** the deprecated `pkg/mgmtrpc` and `pkg/amqprpc`.
+- Wire behaviour is unchanged: the register payload, `logos.channel.rpc`
+  routing and the rpc_queue name stay the same.
+
 ## v2.2.0
 
 - **Minion connection schema**: `module.Config.Connection` (validated by `Run`)

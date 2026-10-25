@@ -2,10 +2,14 @@
 
 Golang foundation SDK for building Logos channel modules.
 
-## v0 Architecture Summary
+The control plane every module type shares lives in
+[`logos-golang-module-core`](https://github.com/logoscore/logos-golang-module-core):
+`lifecycle`, `module`, `mgmt`, `logstream` and `logging`. This SDK builds on
+it with what is specific to channels.
 
-The repository now includes a compileable v0 scaffold with the primary package boundaries:
+## Packages
 
+- `pkg/channel`: `Run(ctx, Config)` runs the channel's control-plane session (module-core's `module.Run` with module_type `channel`) and declares its minion connection schema (`Config.Connection`)
 - `pkg/runtime`: channel runtime orchestrator and core interfaces
 - `pkg/profile`: profile model, YAML parsing helpers, semantic validation
 - `pkg/matcher`: hint-first profile selection with deterministic fallback resolution
@@ -13,8 +17,7 @@ The repository now includes a compileable v0 scaffold with the primary package b
 - `pkg/resolver`: first-class location resolver helper (`body/header/query/cookie` refs)
 - `pkg/cache`: source affinity cache utility (TTL)
 - `pkg/syncclient`: HTTP sync client for Logos (`POST /api/channel/sync`)
-- `pkg/mgmtrpc`: management RPC handlers for profile CRUD/activate/validate
-- `pkg/errors`: typed error codes and helpers
+- `pkg/errors`: channel error codes on module-core's typed error
 
 Core runtime interfaces:
 
@@ -67,5 +70,5 @@ if err != nil {
 
 ## Notes
 
-- Depends on released protocol module: `github.com/logoscore/logos-golang-protocol@v0.1.0`.
+- Depends on `github.com/logoscore/logos-golang-module-core` and `github.com/logoscore/logos-golang-protocol`.
 - See `docs/FOUNDATION-PLAN.md` for broader roadmap details.

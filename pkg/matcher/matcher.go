@@ -4,9 +4,9 @@ import (
 	"context"
 	"sort"
 
-	"github.com/logoscore/logos-golang-channel-core/v2/pkg/cache"
-	coreerrors "github.com/logoscore/logos-golang-channel-core/v2/pkg/errors"
-	"github.com/logoscore/logos-golang-channel-core/v2/pkg/profile"
+	"github.com/logoscore/logos-golang-channel-core/v3/pkg/cache"
+	coreerrors "github.com/logoscore/logos-golang-channel-core/v3/pkg/errors"
+	"github.com/logoscore/logos-golang-channel-core/v3/pkg/profile"
 )
 
 type MatchSource string

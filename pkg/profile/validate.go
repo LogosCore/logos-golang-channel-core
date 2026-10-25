@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	coreerrors "github.com/logoscore/logos-golang-channel-core/v2/pkg/errors"
+	coreerrors "github.com/logoscore/logos-golang-channel-core/v3/pkg/errors"
 )
 
 // Validate performs baseline semantic checks for a single profile.
