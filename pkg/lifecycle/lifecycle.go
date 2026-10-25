@@ -36,6 +36,11 @@ type Status string
 const (
 	StatusHealthy  Status = "healthy"
 	StatusDegraded Status = "degraded"
+
+	// Deprecated: heartbeat health is only healthy or degraded; core no longer
+	// accepts "draining" as a meaning. Report a module-specific pause as a
+	// management status value instead. Kept so v2 stays source-compatible.
+	StatusDraining Status = "draining"
 )
 
 // Defaults applied when core's register ack omits or zeroes a liveness value.

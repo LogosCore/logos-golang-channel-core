@@ -3,7 +3,7 @@ module github.com/logoscore/logos-golang-channel-core/v2
 go 1.25.7
 
 require (
-	github.com/logoscore/logos-golang-protocol v0.2.1
+	github.com/logoscore/logos-golang-protocol v0.3.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

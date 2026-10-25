@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.1.0
 
 - **Module management** (`pkg/mgmt`): `Server` built from a
   `protocol.ManagementManifest` (validated at construction) that serves
@@ -30,7 +30,7 @@
 - **Logging** (`pkg/logging`): `New` builds a module's slog logger in `json`
   (default) or `text`, teed into a `logstream.Hub`; `Headers` logs all HTTP
   headers as a `headers` group.
-- **BREAKING (lifecycle):** removed `StatusDraining`. Heartbeat health is only
+- **Lifecycle:** `StatusDraining` is deprecated. Heartbeat health is only
   `healthy` / `degraded`; module-specific states such as an admin pause belong
   in the module's management status values.
 - Deprecated `pkg/amqprpc` and `pkg/mgmtrpc` in favor of `pkg/mgmt`.
