@@ -62,6 +62,7 @@ Profiles define how canonical fields map to/from transport-specific locations. A
 
 - **`pkg/mgmt`** — module management: `Server` built from a `protocol.ManagementManifest` handles `mgmt.config.apply` / `mgmt.action.invoke` / `mgmt.state.get` (`Handle` for any transport); `AMQPConsumer` serves it on the module's `rpc_queue`. Start the consumer before registering.
 - **`pkg/lifecycle`** — module register/heartbeat/deregister client. `WithManagement(s)` declares the manifest, applies `config.management` from every register ack, and reports applied revision + status in heartbeats.
+- **`pkg/module`** — `Run` supervises a module's whole control-plane session: connects, serves the `mgmt.Server` on the rpc_queue (default `RPCQueue(instance)`), registers, heartbeats, deregisters on shutdown, and reconnects with backoff on any failure. Plumbing only — never adds actions or properties of its own; module-specific behavior goes in the module's manifest.
 - **`pkg/mgmtrpc`** / **`pkg/amqprpc`** — deprecated profile CRUD server and its ad-hoc AMQP transport; use `pkg/mgmt`.
 - **`pkg/errors`** — typed error codes (`Error` struct with `Code`, `Message`, wrapped `Err`). Use `coreerrors.New()` / `coreerrors.Wrap()` for consistency. Extract codes with `coreerrors.Code(err)`.
 

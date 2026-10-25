@@ -16,6 +16,14 @@
   ack; `module.heartbeat` sends `applied_revision` and merges status values into
   `metrics`. `BootstrapConfig.Management` holds the apply result. `Run` now
   adopts a changed heartbeat interval on re-register.
+- **Module session** (`pkg/module`): `Run(ctx, Config)` keeps an instance
+  registered across broker outages — connects, serves `Config.Management` on
+  the rpc_queue before registering, heartbeats, deregisters on shutdown, and
+  reconnects with exponential backoff (1s → 30s). `RPCQueue(instance)` gives
+  the conventional `logos.channel.rpc.<instance>`.
+- **BREAKING (lifecycle):** removed `StatusDraining`. Heartbeat health is only
+  `healthy` / `degraded`; module-specific states such as an admin pause belong
+  in the module's management status values.
 - Deprecated `pkg/amqprpc` and `pkg/mgmtrpc` in favor of `pkg/mgmt`.
 
 ## v2.0.0

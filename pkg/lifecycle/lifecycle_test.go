@@ -163,7 +163,7 @@ func TestHeartbeatSendsStatusAndMetrics(t *testing.T) {
 		return okReply(t, req, heartbeatReply{Instance: "http-1", Ack: true, ConfigChanged: true}), nil
 	}}
 	c := NewClient(fp, testIdentity(),
-		WithStatus(func() Status { return StatusDraining }),
+		WithStatus(func() Status { return StatusDegraded }),
 		WithMetrics(func() map[string]any { return map[string]any{"profiles_enabled": 4} }),
 	)
 
@@ -178,8 +178,8 @@ func TestHeartbeatSendsStatusAndMetrics(t *testing.T) {
 	if err := json.Unmarshal(fp.calls()[0].Payload, &hr); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if hr.Status != StatusDraining {
-		t.Errorf("status = %q, want draining", hr.Status)
+	if hr.Status != StatusDegraded {
+		t.Errorf("status = %q, want degraded", hr.Status)
 	}
 	if hr.Metrics["profiles_enabled"] != float64(4) {
 		t.Errorf("metrics = %+v, want profiles_enabled=4", hr.Metrics)

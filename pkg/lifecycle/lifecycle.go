@@ -28,13 +28,14 @@ const (
 	TypeDeregister = "module.deregister"
 )
 
-// Status is a module's self-reported liveness state, sent on each heartbeat.
+// Status is a module's self-reported health, sent on each heartbeat: whether
+// it can do its job. Module-specific states (e.g. an admin-paused channel)
+// belong in its management status values, not here.
 type Status string
 
 const (
 	StatusHealthy  Status = "healthy"
 	StatusDegraded Status = "degraded"
-	StatusDraining Status = "draining"
 )
 
 // Defaults applied when core's register ack omits or zeroes a liveness value.
