@@ -28,7 +28,6 @@ func TestRun_StopsOnCancelWhileBrokerUnreachable(t *testing.T) {
 		done <- Run(ctx, Config{
 			AMQPURL:  "amqp://guest:guest@127.0.0.1:1/",
 			Identity: lifecycle.Identity{ModuleType: "channel", ModuleName: "http", Instance: "test"},
-			Logf:     t.Logf,
 		})
 	}()
 

@@ -12,7 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/logoscore/logos-golang-channel-core/v2/pkg/lifecycle"
@@ -48,9 +48,10 @@ type Config struct {
 	Logs *logstream.Hub
 	// Options are extra lifecycle options (e.g. WithStatus, WithMetrics).
 	Options []lifecycle.Option
-	// Logf receives session events (registered, rejected, reconnecting).
-	// Defaults to log.Printf.
-	Logf func(format string, args ...any)
+	// Logger receives session events: registered/deregistered at info,
+	// failures, rejections and reconnects at warn. Defaults to slog.Default()
+	// at the time of each event.
+	Logger *slog.Logger
 }
 
 // Run keeps the instance registered until ctx is cancelled, then deregisters
@@ -71,8 +72,11 @@ func Run(ctx context.Context, cfg Config) error {
 	if cfg.Identity.RPCQueue == "" {
 		cfg.Identity.RPCQueue = RPCQueue(cfg.Identity.Instance)
 	}
-	if cfg.Logf == nil {
-		cfg.Logf = log.Printf
+	logger := func() *slog.Logger {
+		if cfg.Logger != nil {
+			return cfg.Logger
+		}
+		return slog.Default()
 	}
 	if cfg.Logs != nil {
 		if cfg.Management == nil {
@@ -84,7 +88,7 @@ func Run(ctx context.Context, cfg Config) error {
 	backoff := minBackoff
 	for {
 		started := time.Now()
-		err := runSession(ctx, cfg)
+		err := runSession(ctx, cfg, logger)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -92,7 +96,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if time.Since(started) > maxBackoff {
 			backoff = minBackoff
 		}
-		cfg.Logf("control plane: %v; retrying in %s", err, backoff)
+		logger().Warn("control plane: session failed; retrying", "err", err, "retry_in", backoff.String())
 		select {
 		case <-ctx.Done():
 			return nil
@@ -104,7 +108,7 @@ func Run(ctx context.Context, cfg Config) error {
 
 // runSession runs one broker connection's worth of lifecycle. It returns nil
 // only on ctx cancellation (after deregistering).
-func runSession(ctx context.Context, cfg Config) error {
+func runSession(ctx context.Context, cfg Config, logger func() *slog.Logger) error {
 	id := cfg.Identity
 	conn, err := amqp.Dial(cfg.AMQPURL)
 	if err != nil {
@@ -159,7 +163,7 @@ func runSession(ctx context.Context, cfg Config) error {
 		}
 	}()
 
-	logged := loggingPublisher{pub: pub, instance: id.Instance, connClosed: conn.IsClosed, logf: cfg.Logf}
+	logged := loggingPublisher{pub: pub, instance: id.Instance, connClosed: conn.IsClosed, logger: logger}
 	runErr := lifecycle.NewClient(logged, id, opts...).Run(sessionCtx)
 	if ctx.Err() != nil && cfg.Logs != nil {
 		// Shutting down: tell viewers before the publisher closes, whatever
@@ -186,7 +190,7 @@ type loggingPublisher struct {
 	// connClosed suppresses failures of the deregister lifecycle.Client
 	// attempts after the connection is already gone; Run reports that loss.
 	connClosed func() bool
-	logf       func(format string, args ...any)
+	logger     func() *slog.Logger
 }
 
 func (p loggingPublisher) Call(ctx context.Context, req protocol.Envelope) (protocol.ReplyEnvelope, error) {
@@ -194,18 +198,18 @@ func (p loggingPublisher) Call(ctx context.Context, req protocol.Envelope) (prot
 	switch {
 	case err != nil:
 		if ctx.Err() == nil && !p.connClosed() {
-			p.logf("control plane: %s failed: %v", req.Type, err)
+			p.logger().Warn("control plane: call failed", "op", req.Type, "err", err)
 		}
 	case reply.Status == protocol.StatusError:
 		code := "unknown"
 		if reply.Error != nil {
 			code = reply.Error.Code + ": " + reply.Error.Message
 		}
-		p.logf("control plane: %s rejected by core (%s)", req.Type, code)
+		p.logger().Warn("control plane: rejected by core", "op", req.Type, "reason", code)
 	case req.Type == lifecycle.TypeRegister:
-		p.logf("control plane: registered with core as %q", p.instance)
+		p.logger().Info("control plane: registered with core", "instance", p.instance)
 	case req.Type == lifecycle.TypeDeregister:
-		p.logf("control plane: deregistered %q", p.instance)
+		p.logger().Info("control plane: deregistered", "instance", p.instance)
 	}
 	return reply, err
 }

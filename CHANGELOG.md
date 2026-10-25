@@ -19,7 +19,7 @@
 - **Module session** (`pkg/module`): `Run(ctx, Config)` keeps an instance
   registered across broker outages — connects, serves `Config.Management` on
   the rpc_queue before registering, heartbeats, deregisters on shutdown, and
-  reconnects with exponential backoff (1s → 30s). `RPCQueue(instance)` gives
+  reconnects with exponential backoff (1s → 30s). Session events go to `Config.Logger` (slog; failures at warn). `RPCQueue(instance)` gives
   the conventional `logos.channel.rpc.<instance>`.
 - **Live log streaming** (`pkg/logstream`): `Hub` with a ring buffer
   (backlog; keeps whatever the logger produced), leased streams (`mgmt.logs.start` renews, `mgmt.logs.stop`,
