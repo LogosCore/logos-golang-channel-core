@@ -22,9 +22,9 @@ func config(id lifecycle.Identity) Config {
 }
 
 func TestRunRefusesOtherModuleType(t *testing.T) {
-	cfg := config(lifecycle.Identity{ModuleType: "minion-factory", ModuleName: "http", Instance: "t"})
+	cfg := config(lifecycle.Identity{ModuleType: "factory", ModuleName: "http", Instance: "t"})
 	if err := Run(context.Background(), cfg); err == nil {
-		t.Fatal("Run accepted module_type minion-factory")
+		t.Fatal("Run accepted module_type factory")
 	}
 }
 
