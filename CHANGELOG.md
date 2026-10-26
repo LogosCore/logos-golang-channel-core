@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.0.1
+
+- Requires `logos-golang-module-core` v0.1.2 and `logos-golang-protocol`
+  v0.5.0.
+
 ## v3.0.0
 
 The control plane every module type shares moved to the new
