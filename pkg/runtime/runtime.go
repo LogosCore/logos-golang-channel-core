@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -101,7 +100,7 @@ func (r *Runtime) HandleWithProfile(ctx context.Context, envelope TransportEnvel
 	}
 
 	inbound := protocol.InboundMinionMessage{
-		MessageID: fmt.Sprintf("%s-%d", channelID, time.Now().UnixNano()),
+		MessageID: protocol.NewID(),
 		Type:      protocol.TypeInboundMinionMessage,
 		Version:   protocol.VersionV1,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
@@ -206,7 +205,7 @@ func inboundFromEnvelope(envelope TransportEnvelope, channelID string) (protocol
 	}
 
 	return protocol.InboundMinionMessage{
-		MessageID: fmt.Sprintf("%s-%d", channelID, time.Now().UnixNano()),
+		MessageID: protocol.NewID(),
 		Type:      protocol.TypeInboundMinionMessage,
 		Version:   protocol.VersionV1,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),

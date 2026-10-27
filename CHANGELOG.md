@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Inbound message ids are UUIDv4** (`protocol.NewID`), the one id format
+  across Logos. They were `<channel instance>-<unix nanoseconds>`: two messages
+  in the same clock tick on one instance could share an id, and core treats a
+  repeated id as a replay of the first. Requires `logos-golang-protocol`
+  v0.6.0.
+
 ## v3.0.1
 
 - Requires `logos-golang-module-core` v0.1.2 and `logos-golang-protocol`
