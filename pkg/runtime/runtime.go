@@ -62,7 +62,7 @@ func (r *Runtime) Handle(ctx context.Context, envelope TransportEnvelope, channe
 		return protocol.OutboundMinionMessage{}, coreerrors.Wrap(coreerrors.CodeCanonicalInvalid, "invalid outbound canonical message", err)
 	}
 
-	envelope.SetField("mapping", "id", outbound.MinionID)
+	envelope.SetField("mapping", "id", outbound.BuildID)
 	envelope.SetField("mapping", "encrypted_data", string(outbound.Data))
 
 	return outbound, nil
@@ -102,7 +102,7 @@ func (r *Runtime) HandleWithProfile(ctx context.Context, envelope TransportEnvel
 	// as the request body, so no transform has to leave it text-safe.
 	inbound := protocol.InboundMinionMessage{
 		MessageID:       protocol.NewID(),
-		MinionID:        id,
+		BuildID:         id,
 		ChannelInstance: channelID,
 		Data:            []byte(encryptedData),
 	}
@@ -200,7 +200,7 @@ func inboundFromEnvelope(envelope TransportEnvelope, channelID string) (protocol
 
 	return protocol.InboundMinionMessage{
 		MessageID:       protocol.NewID(),
-		MinionID:        id,
+		BuildID:         id,
 		ChannelInstance: channelID,
 		Data:            []byte(encryptedData),
 	}, nil

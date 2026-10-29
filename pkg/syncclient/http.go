@@ -69,7 +69,7 @@ func (c *HTTPClient) Sync(ctx context.Context, in protocol.InboundMinionMessage)
 	}
 	defer resp.Body.Close()
 
-	out, err := ReadReply(resp, in.MinionID, c.MaxReplyBytes)
+	out, err := ReadReply(resp, in.BuildID, c.MaxReplyBytes)
 	if err != nil {
 		var vErr *protocol.ValidationError
 		if errors.As(err, &vErr) {
@@ -80,12 +80,12 @@ func (c *HTTPClient) Sync(ctx context.Context, in protocol.InboundMinionMessage)
 	return out, nil
 }
 
-// ReadReply reads core's reply to a sync request for minionID: a 200 with
+// ReadReply reads core's reply to a sync request for buildID: a 200 with
 // ciphertext or a 204 with nothing for the minion. Any other status is an
 // error carrying core's JSON error body. The body may be at most maxBytes
 // (DefaultMaxReplyBytes when zero or less). A reply that fails
 // protocol.ValidateOutbound returns its *protocol.ValidationError.
-func ReadReply(resp *http.Response, minionID string, maxBytes int64) (protocol.OutboundMinionMessage, error) {
+func ReadReply(resp *http.Response, buildID string, maxBytes int64) (protocol.OutboundMinionMessage, error) {
 	if maxBytes <= 0 {
 		maxBytes = DefaultMaxReplyBytes
 	}
@@ -115,8 +115,8 @@ func ReadReply(resp *http.Response, minionID string, maxBytes int64) (protocol.O
 	if err := protocol.ValidateOutbound(out); err != nil {
 		return out, err
 	}
-	if out.MinionID != minionID {
-		return out, fmt.Errorf("reply is for minion %s, not %s", out.MinionID, minionID)
+	if out.BuildID != buildID {
+		return out, fmt.Errorf("reply is for build %s, not %s", out.BuildID, buildID)
 	}
 	return out, nil
 }

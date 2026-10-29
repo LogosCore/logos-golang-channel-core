@@ -51,7 +51,7 @@ const (
 )
 
 func validOutbound() protocol.OutboundMinionMessage {
-	return protocol.OutboundMinionMessage{MessageID: replyID, MinionID: minionOut, Data: []byte("blob-out")}
+	return protocol.OutboundMinionMessage{MessageID: replyID, BuildID: minionOut, Data: []byte("blob-out")}
 }
 
 func TestRuntimeHandleSuccess(t *testing.T) {
@@ -66,10 +66,10 @@ func TestRuntimeHandleSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handle returned error: %v", err)
 	}
-	if got.MinionID != minionOut {
-		t.Fatalf("unexpected outbound id: %s", got.MinionID)
+	if got.BuildID != minionOut {
+		t.Fatalf("unexpected outbound id: %s", got.BuildID)
 	}
-	if sync.captured.ChannelInstance != "telegram" || sync.captured.MinionID != minionIn {
+	if sync.captured.ChannelInstance != "telegram" || sync.captured.BuildID != minionIn {
 		t.Fatalf("unexpected inbound %+v", sync.captured)
 	}
 	if env.data["mapping.id"] != minionOut {
@@ -100,7 +100,7 @@ func TestRuntimeHandleInvalidOutbound(t *testing.T) {
 	sync := &testSyncClient{outbound: protocol.OutboundMinionMessage{
 		MessageID: replyID,
 		Data:      []byte("blob-out"),
-		// missing minion id
+		// missing build id
 	}}
 	r := New(sync)
 
@@ -176,11 +176,11 @@ func TestRuntimeHandleWithProfileSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleWithProfile returned error: %v", err)
 	}
-	if got.MinionID != minionOut {
-		t.Fatalf("unexpected outbound id: %s", got.MinionID)
+	if got.BuildID != minionOut {
+		t.Fatalf("unexpected outbound id: %s", got.BuildID)
 	}
-	if sync.captured.MinionID != minionIn {
-		t.Fatalf("unexpected inbound id: %s", sync.captured.MinionID)
+	if sync.captured.BuildID != minionIn {
+		t.Fatalf("unexpected inbound id: %s", sync.captured.BuildID)
 	}
 	if string(sync.captured.Data) != "blob-in" {
 		t.Fatalf("unexpected inbound data: %q", sync.captured.Data)
@@ -251,8 +251,8 @@ func TestRuntimeHandleWithProfileCompositeInDelimiter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleWithProfile returned error: %v", err)
 	}
-	if sync.captured.MinionID != minionIn {
-		t.Fatalf("expected id %s, got %q", minionIn, sync.captured.MinionID)
+	if sync.captured.BuildID != minionIn {
+		t.Fatalf("expected id %s, got %q", minionIn, sync.captured.BuildID)
 	}
 	if string(sync.captured.Data) != "blob-in" {
 		t.Fatalf("expected data 'blob-in', got %q", sync.captured.Data)
@@ -282,8 +282,8 @@ func TestRuntimeHandleWithProfileCompositeInLengthPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleWithProfile returned error: %v", err)
 	}
-	if sync.captured.MinionID != minionIn {
-		t.Fatalf("expected id %s, got %q", minionIn, sync.captured.MinionID)
+	if sync.captured.BuildID != minionIn {
+		t.Fatalf("expected id %s, got %q", minionIn, sync.captured.BuildID)
 	}
 	if string(sync.captured.Data) != "rest-of-payload" {
 		t.Fatalf("expected data 'rest-of-payload', got %q", sync.captured.Data)
@@ -307,7 +307,7 @@ func TestRuntimeHandleWithProfileCustomAction(t *testing.T) {
 	}
 	r := New(&testSyncClient{})
 	r.RegisterAction("redirect", func(_ context.Context, params map[string]any, inbound protocol.InboundMinionMessage, _ TransportEnvelope) (protocol.OutboundMinionMessage, error) {
-		return protocol.OutboundMinionMessage{MessageID: replyID, MinionID: inbound.MinionID, Data: []byte("redirected")}, nil
+		return protocol.OutboundMinionMessage{MessageID: replyID, BuildID: inbound.BuildID, Data: []byte("redirected")}, nil
 	})
 
 	got, err := r.HandleWithProfile(context.Background(), env, "http", p)

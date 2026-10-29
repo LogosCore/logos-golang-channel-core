@@ -48,7 +48,7 @@ go test ./...
 
 Implement `runtime.TransportEnvelope` in your transport layer and populate:
 
-- `mapping.id`: the minion id, a lowercase UUID
+- `mapping.id`: the build id, a lowercase UUID
 - `mapping.encrypted_data`: the minion's ciphertext as raw bytes in a Go string (a profile's transforms undo the transport's encoding, e.g. base64, before it goes to core)
 - optional `mapping.profile_id`
 
