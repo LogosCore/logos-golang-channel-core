@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **An empty reply is relayed, not refused.** Core's `outbound.minion_message`
+  with an empty `encrypted_data` (it has nothing for the minion, which today is
+  every reply) passes `protocol.ValidateOutbound`, so the sync client and the
+  runtime hand it on instead of failing with `ERR_CANONICAL_INVALID`.
+  Requires `logos-golang-protocol` v0.6.0.
 - **Inbound message ids are UUIDv4** (`protocol.NewID`), the one id format
   across Logos. They were `<channel instance>-<unix nanoseconds>`: two messages
   in the same clock tick on one instance could share an id, and core treats a

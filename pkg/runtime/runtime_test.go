@@ -98,12 +98,12 @@ func TestRuntimeHandleInvalidOutbound(t *testing.T) {
 		"mapping.encrypted_data": "blob-in",
 	}}
 	sync := &testSyncClient{outbound: protocol.OutboundMinionMessage{
-		MessageID: "m-3",
-		Type:      protocol.TypeOutboundMinionMessage,
-		Version:   protocol.VersionV1,
-		Timestamp: "2026-03-10T15:00:00Z",
-		ID:        "msg-2",
-		// missing encrypted_data
+		MessageID:     "m-3",
+		Type:          protocol.TypeOutboundMinionMessage,
+		Version:       protocol.VersionV1,
+		Timestamp:     "2026-03-10T15:00:00Z",
+		EncryptedData: "blob-out",
+		// missing id
 	}}
 	r := New(sync)
 
@@ -113,6 +113,45 @@ func TestRuntimeHandleInvalidOutbound(t *testing.T) {
 	}
 	if code := coreerrors.Code(err); code != coreerrors.CodeCanonicalInvalid {
 		t.Fatalf("unexpected error code: %s", code)
+	}
+}
+
+// Core has nothing for the minion: its reply carries no encrypted_data, and
+// the channel relays it like any other, through the profile's transforms.
+func TestRuntimeHandleEmptyReply(t *testing.T) {
+	empty := validOutbound()
+	empty.EncryptedData = ""
+
+	env := &testEnvelope{data: map[string]string{
+		"mapping.id":             "msg-1",
+		"mapping.encrypted_data": "blob-in",
+	}}
+	if _, err := New(&testSyncClient{outbound: empty}).Handle(context.Background(), env, "http"); err != nil {
+		t.Fatalf("Handle refused an empty reply: %v", err)
+	}
+	if v, ok := env.data["mapping.encrypted_data"]; !ok || v != "" {
+		t.Fatalf("mapping.encrypted_data = %q (set %v), want empty", v, ok)
+	}
+
+	env = &testEnvelope{data: map[string]string{"body.id": "msg-1", "body.data": "blob-in"}}
+	p := profile.Profile{
+		ProfileID: 1,
+		Enabled:   true,
+		Action:    profile.Action{Type: "sync"},
+		Mapping: profile.Mapping{
+			ID:              profile.MapField{Target: profile.Target{Location: "body", Key: "id"}},
+			EncryptedDataIn: profile.MapField{Target: profile.Target{Location: "body", Key: "data"}},
+			EncryptedDataOut: profile.MapField{
+				Target:    profile.Target{Location: "body", Key: "out"},
+				Transform: []transform.Spec{{Type: "base64"}},
+			},
+		},
+	}
+	if _, err := New(&testSyncClient{outbound: empty}).HandleWithProfile(context.Background(), env, "http", p); err != nil {
+		t.Fatalf("HandleWithProfile refused an empty reply: %v", err)
+	}
+	if v, ok := env.data["body.out"]; !ok || v != "" {
+		t.Fatalf("body.out = %q (set %v), want empty", v, ok)
 	}
 }
 
