@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## v3.1.0
+
+The sync call changed with core, so channel-core, core and every channel move
+together: the API change below ships in a minor release on purpose, rather
+than as a /v4 module path. Requires `logos-golang-protocol` v0.6.0 and
+`logos-golang-module-core` v0.2.0.
 
 - **Breaking: the sync call carries raw bytes.** `syncclient.HTTPClient` posts
   the minion's ciphertext as the request body (`application/octet-stream`)
