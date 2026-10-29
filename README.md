@@ -16,7 +16,7 @@ it with what is specific to channels.
 - `pkg/transform`: reusable transform pipeline (`base64`, `base64url`)
 - `pkg/resolver`: first-class location resolver helper (`body/header/query/cookie` refs)
 - `pkg/cache`: source affinity cache utility (TTL)
-- `pkg/syncclient`: HTTP sync client for Logos (`POST /api/channel/sync`)
+- `pkg/syncclient`: HTTP sync client for Logos (`POST /api/channel/sync`: the minion's ciphertext as the raw body, its ids in `Logos-*` headers; `ReadReply` reads core's 200 or 204 for channels with their own HTTP client)
 - `pkg/errors`: channel error codes on module-core's typed error
 
 Core runtime interfaces:
@@ -27,8 +27,8 @@ Core runtime interfaces:
 
 Runtime pipeline entrypoint:
 
-- `Handle(ctx, envelope, channelID) (protocol.OutboundAgentMessage, error)`
-- `HandleWithProfile(ctx, envelope, channelID, profile) (protocol.OutboundAgentMessage, error)`
+- `Handle(ctx, envelope, channelID) (protocol.OutboundMinionMessage, error)`
+- `HandleWithProfile(ctx, envelope, channelID, profile) (protocol.OutboundMinionMessage, error)`
 - Performs basic canonical inbound/outbound validation around sync execution.
 
 Matcher resolution:
@@ -48,8 +48,8 @@ go test ./...
 
 Implement `runtime.TransportEnvelope` in your transport layer and populate:
 
-- `mapping.id`
-- `mapping.encrypted_data`
+- `mapping.id`: the minion id, a lowercase UUID
+- `mapping.encrypted_data`: the minion's ciphertext as raw bytes in a Go string (a profile's transforms undo the transport's encoding, e.g. base64, before it goes to core)
 - optional `mapping.profile_id`
 
 Then call:

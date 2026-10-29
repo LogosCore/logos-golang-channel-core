@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"strings"
-	"time"
 
 	coreerrors "github.com/logoscore/logos-golang-channel-core/v3/pkg/errors"
 	"github.com/logoscore/logos-golang-channel-core/v3/pkg/noise"
@@ -63,8 +62,8 @@ func (r *Runtime) Handle(ctx context.Context, envelope TransportEnvelope, channe
 		return protocol.OutboundMinionMessage{}, coreerrors.Wrap(coreerrors.CodeCanonicalInvalid, "invalid outbound canonical message", err)
 	}
 
-	envelope.SetField("mapping", "id", outbound.ID)
-	envelope.SetField("mapping", "encrypted_data", outbound.EncryptedData)
+	envelope.SetField("mapping", "id", outbound.MinionID)
+	envelope.SetField("mapping", "encrypted_data", string(outbound.Data))
 
 	return outbound, nil
 }
@@ -99,19 +98,13 @@ func (r *Runtime) HandleWithProfile(ctx context.Context, envelope TransportEnvel
 		return protocol.OutboundMinionMessage{}, err
 	}
 
+	// The decoded value is the minion's ciphertext, raw bytes: it goes to core
+	// as the request body, so no transform has to leave it text-safe.
 	inbound := protocol.InboundMinionMessage{
-		MessageID: protocol.NewID(),
-		Type:      protocol.TypeInboundMinionMessage,
-		Version:   protocol.VersionV1,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Source: protocol.SourceInfo{
-			Module:         "channel-core",
-			ModuleInstance: channelID,
-			Transport:      "channel",
-			Tenant:         "default",
-		},
-		ID:            id,
-		EncryptedData: encryptedData,
+		MessageID:       protocol.NewID(),
+		MinionID:        id,
+		ChannelInstance: channelID,
+		Data:            []byte(encryptedData),
 	}
 
 	if err := protocol.ValidateInbound(inbound); err != nil {
@@ -130,7 +123,7 @@ func (r *Runtime) HandleWithProfile(ctx context.Context, envelope TransportEnvel
 		return protocol.OutboundMinionMessage{}, coreerrors.Wrap(coreerrors.CodeCanonicalInvalid, "invalid outbound canonical message", err)
 	}
 
-	outEncrypted, err := transform.ApplyEncode(outbound.EncryptedData, p.Mapping.EncryptedDataOut.Transform)
+	outEncrypted, err := transform.ApplyEncode(string(outbound.Data), p.Mapping.EncryptedDataOut.Transform)
 	if err != nil {
 		return protocol.OutboundMinionMessage{}, coreerrors.Wrap(coreerrors.CodeInvalidInput, "transform encode failed for encrypted_data_out", err)
 	}
@@ -154,7 +147,7 @@ func extractField(envelope TransportEnvelope, f profile.MapField) (string, error
 	loc := strings.TrimSpace(f.Target.Location)
 	key := strings.TrimSpace(f.Target.Key)
 	raw, ok := envelope.GetField(loc, key)
-	if !ok || strings.TrimSpace(raw) == "" {
+	if !ok || raw == "" {
 		return "", coreerrors.New(coreerrors.CodeInvalidInput, "missing required field: "+loc+"."+key)
 	}
 	decoded, err := transform.ApplyDecode(raw, f.Transform)
@@ -169,7 +162,7 @@ func extractComposite(envelope TransportEnvelope, cf profile.CompositeField) (st
 	loc := strings.TrimSpace(cf.Target.Location)
 	key := strings.TrimSpace(cf.Target.Key)
 	raw, ok := envelope.GetField(loc, key)
-	if !ok || strings.TrimSpace(raw) == "" {
+	if !ok || raw == "" {
 		return "", "", coreerrors.New(coreerrors.CodeInvalidInput, "missing required field: "+loc+"."+key)
 	}
 	decoded, err := transform.ApplyDecode(raw, cf.Transform)
@@ -199,24 +192,17 @@ func inboundFromEnvelope(envelope TransportEnvelope, channelID string) (protocol
 	if err != nil {
 		return protocol.InboundMinionMessage{}, err
 	}
-	encryptedData, err := requiredEnvelopeField(envelope, "mapping", "encrypted_data")
-	if err != nil {
-		return protocol.InboundMinionMessage{}, err
+	// The ciphertext is bytes: taken as it is, never trimmed.
+	encryptedData, ok := envelope.GetField("mapping", "encrypted_data")
+	if !ok || encryptedData == "" {
+		return protocol.InboundMinionMessage{}, coreerrors.New(coreerrors.CodeInvalidInput, "missing required field: mapping.encrypted_data")
 	}
 
 	return protocol.InboundMinionMessage{
-		MessageID: protocol.NewID(),
-		Type:      protocol.TypeInboundMinionMessage,
-		Version:   protocol.VersionV1,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Source: protocol.SourceInfo{
-			Module:         "channel-core",
-			ModuleInstance: channelID,
-			Transport:      "channel",
-			Tenant:         "default",
-		},
-		ID:            id,
-		EncryptedData: encryptedData,
+		MessageID:       protocol.NewID(),
+		MinionID:        id,
+		ChannelInstance: channelID,
+		Data:            []byte(encryptedData),
 	}, nil
 }
 

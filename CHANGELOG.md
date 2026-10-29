@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Breaking: the sync call carries raw bytes.** `syncclient.HTTPClient` posts
+  the minion's ciphertext as the request body (`application/octet-stream`)
+  with `Logos-Message-Id`, `Logos-Minion-Id` and `Logos-Channel-Instance`
+  headers, and reads core's 200 (ciphertext) or 204 (nothing for the minion);
+  `ReadReply` does the reading for a channel with its own client. It checks
+  that the reply names the same minion, and caps the reply at
+  `MaxReplyBytes` (16 MiB by default). The runtime hands core the value a
+  profile's transforms decode to as bytes, so a profile that decodes base64
+  no longer sends text-unsafe bytes through a JSON string, where Go replaced
+  them with U+FFFD. Minion ids must be lowercase UUIDs. Requires
+  `logos-golang-protocol` v0.6.0 and a core that speaks the raw-body sync.
 - **An empty reply is relayed, not refused.** Core's `outbound.minion_message`
   with an empty `encrypted_data` (it has nothing for the minion, which today is
   every reply) passes `protocol.ValidateOutbound`, so the sync client and the
