@@ -1,5 +1,9 @@
 # Changelog
 
+## v3.2.0
+
+- **The minion id is now the build id**: `protocol.InboundMinionMessage.BuildID` / `OutboundMinionMessage.BuildID`, sent as `Logos-Build-Id`; `syncclient.ReadReply` takes the build id. Like v3.1.0, a breaking change in a minor release: core and every channel move together. Requires `logos-golang-protocol` v0.7.0 and `logos-golang-module-core` v0.2.1.
+
 ## v3.1.0
 
 The sync call changed with core, so channel-core, core and every channel move
