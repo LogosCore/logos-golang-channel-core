@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Go SDK (`github.com/logoscore/logos-golang-channel-core/v3`) for building Logos channel modules. Channel modules bridge arbitrary transports (HTTP, Telegram, etc.) to the Logos server while remaining plaintext-blind — they never decrypt agent payloads.
+Go SDK (`github.com/logoscore/logos-golang-channel-core/v3`) for building Logos channel modules. Channel modules bridge arbitrary transports (HTTP, DNS, etc.) to the Logos server while remaining plaintext-blind — they never decrypt agent payloads.
 
 Builds on `github.com/logoscore/logos-golang-module-core`, which holds the control plane every module type shares (`lifecycle`, `module`, `mgmt`, `logstream`, `logging`, base `errors`). Only channel-specific code belongs here. Depends on `github.com/logoscore/logos-golang-protocol` for canonical message types and validation.
 
@@ -18,7 +18,7 @@ go test -run TestHandleSuccess ./pkg/runtime  # run a single test
 go vet ./...          # static analysis
 ```
 
-No Makefile or task runner — use standard Go tooling. Go version: 1.25.7.
+No Makefile or task runner — use standard Go tooling. Go version: 1.25.7. CI (`.github/workflows/ci.yml`, the same as module-core's and protocol's) runs `go test ./...` on pushes to `main`, on `v*` tags and on pull requests.
 
 ### Documentation Submodule
 
