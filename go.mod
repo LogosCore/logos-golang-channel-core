@@ -3,8 +3,8 @@ module github.com/logoscore/logos-golang-channel-core/v3
 go 1.25.7
 
 require (
-	github.com/logoscore/logos-golang-module-core v0.2.10
-	github.com/logoscore/logos-golang-protocol v0.15.0
+	github.com/logoscore/logos-golang-module-core v0.2.11
+	github.com/logoscore/logos-golang-protocol v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
