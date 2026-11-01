@@ -16,6 +16,7 @@ it with what is specific to channels.
 - `pkg/transform`: reusable transform pipeline (`base64`, `base64url`)
 - `pkg/resolver`: first-class location resolver helper (`body/header/query/cookie` refs)
 - `pkg/cache`: source affinity cache utility (TTL)
+- `pkg/connclient`: connection sockets to core (`Dial` a WebSocket to `/api/channel/connection` for each persistent minion connection, with the instance, the connection kind and the minion's address; `Send` and `Receive` frames both ways; pings core's end)
 - `pkg/syncclient`: HTTP sync client for Logos (`POST /api/channel/sync`: the minion's ciphertext as the raw body, its ids in `Logos-*` headers; `ReadReply` reads core's 200 or 204 for channels with their own HTTP client)
 - `pkg/errors`: channel error codes on module-core's typed error
 
