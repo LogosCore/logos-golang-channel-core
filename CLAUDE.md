@@ -16,9 +16,10 @@ go test ./...         # run all tests
 go test ./pkg/runtime # run tests for a single package
 go test -run TestHandleSuccess ./pkg/runtime  # run a single test
 go vet ./...          # static analysis
+golangci-lint run ./... # lint, as CI runs it
 ```
 
-No Makefile or task runner — use standard Go tooling. Go version: 1.25.7. CI (`.github/workflows/ci.yml`, the same as module-core's and protocol's) runs `go test ./...` on pushes to `main`, on `v*` tags and on pull requests.
+No Makefile or task runner — use standard Go tooling. Go version: 1.25.7. CI (`.github/workflows/ci.yml`, the same file in protocol, module-core, channel-core, factory-core and the HTTP channel) runs `go test ./...` and golangci-lint v2.13.2 with its default linters (no config file) on pushes to `main`, on `v*` tags and on pull requests. The code is kept at 0 issues: fix a finding (an explicit `_ =` with the reason, for a Close whose error says nothing) rather than excluding it.
 
 ### Documentation Submodule
 

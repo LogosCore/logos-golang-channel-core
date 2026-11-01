@@ -67,7 +67,8 @@ func (c *HTTPClient) Sync(ctx context.Context, in protocol.InboundMinionMessage)
 		}
 		return protocol.OutboundMinionMessage{}, coreerrors.Wrap(coreerrors.CodeSyncRejected, "sync request failed", err)
 	}
-	defer resp.Body.Close()
+	// ReadReply reads it; closing it says nothing about the reply.
+	defer func() { _ = resp.Body.Close() }()
 
 	out, err := ReadReply(resp, in.BuildID, c.MaxReplyBytes)
 	if err != nil {
