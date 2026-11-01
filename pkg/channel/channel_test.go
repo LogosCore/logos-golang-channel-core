@@ -30,7 +30,7 @@ func TestRunRefusesOtherModuleType(t *testing.T) {
 
 func TestRunRefusesInvalidConnection(t *testing.T) {
 	cfg := config(lifecycle.Identity{ModuleName: "http", Instance: "t"})
-	cfg.Connection = &protocol.ConnectionSchema{SchemaVersion: protocol.ConnectionSchemaV1, Version: 0}
+	cfg.Connection = &protocol.ConnectionSchema{SchemaVersion: protocol.ConnectionSchemaV2, Version: 0}
 	if err := Run(context.Background(), cfg); err == nil {
 		t.Fatal("Run accepted an invalid connection schema")
 	}
@@ -39,9 +39,11 @@ func TestRunRefusesInvalidConnection(t *testing.T) {
 func TestRunDefaultsModuleType(t *testing.T) {
 	cfg := config(lifecycle.Identity{ModuleName: "http", Instance: "t"})
 	cfg.Connection = &protocol.ConnectionSchema{
-		SchemaVersion: protocol.ConnectionSchemaV1,
+		SchemaVersion: protocol.ConnectionSchemaV2,
 		Version:       1,
-		Fields:        []protocol.FieldSpec{{Key: "base_url", Type: protocol.FieldURL, Required: true}},
+		Kinds: map[string]protocol.ConnectionKind{protocol.KindReverseCall: {
+			Fields: []protocol.FieldSpec{{Key: "base_url", Type: protocol.FieldURL, Required: true}},
+		}},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
