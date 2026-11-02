@@ -145,6 +145,15 @@ func TestAnswerFrame(t *testing.T) {
 	if f.Status != 0 || f.Failure.Kind != protocol.LinkFailTLS {
 		t.Fatalf("failure: %+v", f)
 	}
+	// The peer goes with what answered, not with a failure.
+	f = answerFrame(7, Answer{Status: 404, Excerpt: []byte("nope"), Peer: "203.0.113.7"})
+	if f.Peer != "203.0.113.7" || f.Failure != nil {
+		t.Fatalf("peer: %+v", f)
+	}
+	f = answerFrame(8, Answer{Failure: &protocol.LinkFailure{Kind: protocol.LinkFailTimeout}, Peer: "203.0.113.7"})
+	if f.Peer != "" || f.Failure == nil {
+		t.Fatalf("a failure's peer: %+v", f)
+	}
 	if long := Fail(protocol.LinkFailOther, "%s", string(bytes.Repeat([]byte("é"), 400))); len(long.Failure.Msg) > protocol.MaxLinkFailureMsg {
 		t.Fatalf("message of %d bytes", len(long.Failure.Msg))
 	}
@@ -159,5 +168,51 @@ func TestRunRefusesBadOptions(t *testing.T) {
 		if err := Run(context.Background(), Options{BaseURL: base, Handler: h}); err == nil {
 			t.Errorf("base %q", base)
 		}
+	}
+}
+
+// An open goes to the channel's Opener, with its values and request; its
+// answer (the socket up, or why not) goes back by the request id.
+func TestOpen(t *testing.T) {
+	round := []protocol.LinkFrame{
+		{Type: protocol.LinkOpen, Request: 7, Values: map[string]any{"host": "10.0.0.5"}, Deadline: 2000},
+		{Type: protocol.LinkOpen, Request: 8, Values: map[string]any{"host": "nowhere"}},
+	}
+	answers := make(chan protocol.LinkFrame, 4)
+	var links atomic.Int32
+	core := fakeCore(t, round, answers, &links)
+	defer core.Close()
+	opener := func(ctx context.Context, o Open) Answer {
+		if _, ok := ctx.Deadline(); !ok {
+			t.Error("an open without a deadline")
+		}
+		if o.Values["host"] == "nowhere" {
+			return Fail(protocol.LinkFailUnreachable, "no such host")
+		}
+		if o.Request != 7 || o.Deadline != 2*time.Second {
+			t.Errorf("open %+v", o)
+		}
+		return Answer{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func() {
+		_ = Run(ctx, Options{BaseURL: core.URL, Instance: "http-1", Handler: func(context.Context, Call) Answer { return Answer{} },
+			Opener: opener, MinBackoff: 10 * time.Millisecond, MaxBackoff: 20 * time.Millisecond})
+	}()
+	got := map[uint64]protocol.LinkFrame{}
+	for range round {
+		select {
+		case f := <-answers:
+			got[f.Request] = f
+		case <-ctx.Done():
+			t.Fatalf("answers %v", got)
+		}
+	}
+	if a := got[7]; a.Failure != nil || a.ID != nil {
+		t.Errorf("an open that worked answered %+v", a)
+	}
+	if a := got[8]; a.Failure == nil || a.Failure.Kind != protocol.LinkFailUnreachable {
+		t.Errorf("an open that failed answered %+v", a)
 	}
 }

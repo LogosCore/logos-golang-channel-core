@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,10 +35,14 @@ type Options struct {
 	BaseURL string
 	// Instance is the channel's registered instance id.
 	Instance string
-	// Kind is the connection's kind: protocol.KindReversePersistent.
+	// Kind is the connection's kind: protocol.KindReversePersistent, or
+	// protocol.KindBindPersistent for one the channel dialed.
 	Kind string
 	// Peer is the minion's address as the channel saw it; "" for none.
 	Peer string
+	// OpenRequest is the control link's open this socket answers (a
+	// bind-persistent connection's: the request id core gave it).
+	OpenRequest uint64
 	// HTTPClient makes the handshake; http.DefaultClient when nil.
 	HTTPClient *http.Client
 	// MaxFrame caps a frame read from core; DefaultMaxFrame when zero.
@@ -69,6 +74,9 @@ func Dial(ctx context.Context, o Options) (*Conn, error) {
 	h.Set(protocol.HeaderConnectionKind, o.Kind)
 	if o.Peer != "" {
 		h.Set(protocol.HeaderPeerAddress, o.Peer)
+	}
+	if o.OpenRequest != 0 {
+		h.Set(protocol.HeaderOpenRequest, strconv.FormatUint(o.OpenRequest, 10))
 	}
 	ws, resp, err := websocket.Dial(ctx, u, &websocket.DialOptions{HTTPClient: o.HTTPClient, HTTPHeader: h})
 	if resp != nil && resp.Body != nil {

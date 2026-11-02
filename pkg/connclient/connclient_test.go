@@ -18,9 +18,10 @@ import (
 func fakeCore(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bind := r.Header.Get(protocol.HeaderConnectionKind) == protocol.KindBindPersistent && r.Header.Get(protocol.HeaderOpenRequest) == "42"
 		if r.URL.Path != protocol.ConnectionPath || r.Header.Get(protocol.HeaderChannelInstance) != "http-1" ||
-			r.Header.Get(protocol.HeaderConnectionKind) != protocol.KindReversePersistent ||
-			r.Header.Get(protocol.HeaderPeerAddress) != "203.0.113.7" {
+			(!bind && (r.Header.Get(protocol.HeaderConnectionKind) != protocol.KindReversePersistent ||
+				r.Header.Get(protocol.HeaderPeerAddress) != "203.0.113.7")) {
 			http.Error(w, "bad", http.StatusBadRequest)
 			return
 		}
@@ -91,5 +92,21 @@ func TestRefused(t *testing.T) {
 		if _, err := Dial(context.Background(), Options{BaseURL: base}); err == nil {
 			t.Errorf("base %q dialed", base)
 		}
+	}
+}
+
+// A bind-persistent connection's socket names the open it answers.
+func TestBindConnection(t *testing.T) {
+	core := fakeCore(t)
+	defer core.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, err := Dial(ctx, Options{BaseURL: core.URL, Instance: "http-1", Kind: protocol.KindBindPersistent, OpenRequest: 42})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = c.Close()
+	if _, err := Dial(ctx, Options{BaseURL: core.URL, Instance: "http-1", Kind: protocol.KindBindPersistent, OpenRequest: 41}); !errors.Is(err, ErrRefused) {
+		t.Fatalf("another open's socket: %v", err)
 	}
 }

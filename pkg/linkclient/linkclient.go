@@ -37,6 +37,9 @@ const (
 	stableAfter       = time.Minute
 	// writeWait bounds writing one answer.
 	writeWait = 30 * time.Second
+	// DefaultOpenDeadline bounds an open core gave no deadline (the
+	// contract's 30 seconds).
+	DefaultOpenDeadline = 30 * time.Second
 )
 
 // Call is core's request to deliver a sealed message to a target.
@@ -66,6 +69,10 @@ type Answer struct {
 	Status  int
 	Failure *protocol.LinkFailure
 	Excerpt []byte
+	// Peer is the IP address the channel connected to, when it knows it
+	// without a lookup of its own (dialed directly, or the target an IP
+	// address): the minion's external address. Not sent with a failure.
+	Peer string
 }
 
 // Fail is an Answer saying the call reached nothing.
@@ -81,6 +88,26 @@ func Fail(kind int, format string, args ...any) Answer {
 // goroutine, several at once.
 type Handler func(ctx context.Context, c Call) Answer
 
+// Open is core's request to open a bind-persistent connection to a target.
+type Open struct {
+	// Request is core's id for it: the connection socket the channel opens
+	// for the connection names it (connclient.Options.OpenRequest), and the
+	// answer carries it back.
+	Request uint64
+	// Values are the build connection's built-in values and the target's.
+	Values map[string]any
+	// Deadline is how long core waits, 0 when it does not say; the
+	// context an Opener gets ends at it.
+	Deadline time.Duration
+}
+
+// Opener dials a target and, once the minion's connection is up, opens its
+// connection socket to core naming the request, and keeps relaying until
+// either side closes. It answers when the socket is up (an Answer with
+// nothing in it) or why it could not (a Fail). The connection lives on
+// after the answer: an Opener starts what relays it and returns.
+type Opener func(ctx context.Context, o Open) Answer
+
 // Options are how a channel keeps its link.
 type Options struct {
 	// BaseURL is core's base URL (the sync call's): http(s)://host[:port].
@@ -89,6 +116,9 @@ type Options struct {
 	Instance string
 	// Handler makes the calls; required.
 	Handler Handler
+	// Opener opens bind-persistent connections; nil answers every open
+	// with a failure (the channel carries no bind-persistent kind).
+	Opener Opener
 	// HTTPClient makes the handshake; http.DefaultClient when nil.
 	HTTPClient *http.Client
 	// MaxCalls bounds the calls in progress at once (DefaultMaxCalls when
@@ -241,9 +271,11 @@ func runOnce(ctx context.Context, u string, o Options, log *slog.Logger) error {
 		switch f.Type {
 		case protocol.LinkCall:
 		case protocol.LinkOpen:
-			_ = write(protocol.LinkFrame{Type: protocol.LinkAnswer, Request: f.Request,
-				Failure: &protocol.LinkFailure{Kind: protocol.LinkFailOther, Msg: "this channel does not open bind-persistent connections"}})
-			continue
+			if o.Opener == nil {
+				_ = write(protocol.LinkFrame{Type: protocol.LinkAnswer, Request: f.Request,
+					Failure: &protocol.LinkFailure{Kind: protocol.LinkFailOther, Msg: "this channel does not open bind-persistent connections"}})
+				continue
+			}
 		default:
 			return fmt.Errorf("control link: a frame of type %d from core", f.Type)
 		}
@@ -258,15 +290,29 @@ func runOnce(ctx context.Context, u string, o Options, log *slog.Logger) error {
 		calls.Add(1)
 		go func(f protocol.LinkFrame) {
 			defer func() { <-slots; calls.Done() }()
-			c := Call{Request: f.Request, Values: f.Values, Data: f.Data, Deadline: time.Duration(f.Deadline) * time.Millisecond}
-			copy(c.ID[:], f.ID)
+			deadline := time.Duration(f.Deadline) * time.Millisecond
 			cctx := lctx
-			if c.Deadline > 0 {
+			if deadline > 0 {
 				var ccancel context.CancelFunc
-				cctx, ccancel = context.WithTimeout(lctx, c.Deadline)
+				cctx, ccancel = context.WithTimeout(lctx, deadline)
 				defer ccancel()
 			}
-			a := o.Handler(cctx, c)
+			var a Answer
+			if f.Type == protocol.LinkOpen {
+				// The connection outlives the link: the Opener's context is
+				// the open's deadline only.
+				wait := deadline
+				if wait <= 0 {
+					wait = DefaultOpenDeadline
+				}
+				octx, ocancel := context.WithTimeout(context.WithoutCancel(lctx), wait)
+				a = o.Opener(octx, Open{Request: f.Request, Values: f.Values, Deadline: deadline})
+				ocancel()
+			} else {
+				c := Call{Request: f.Request, Values: f.Values, Data: f.Data, Deadline: deadline}
+				copy(c.ID[:], f.ID)
+				a = o.Handler(cctx, c)
+			}
 			if err := write(answerFrame(f.Request, a)); err != nil && lctx.Err() == nil {
 				log.Warn("control link: answer not sent", "request", f.Request, "err", err)
 			}
@@ -277,10 +323,10 @@ func runOnce(ctx context.Context, u string, o Options, log *slog.Logger) error {
 // answerFrame is a's frame for request; an answer that would not encode
 // (a handler's mistake) goes as a failure.
 func answerFrame(request uint64, a Answer) protocol.LinkFrame {
-	f := protocol.LinkFrame{Type: protocol.LinkAnswer, Request: request, Status: a.Status, Failure: a.Failure}
+	f := protocol.LinkFrame{Type: protocol.LinkAnswer, Request: request, Status: a.Status, Failure: a.Failure, Peer: a.Peer}
 	switch {
 	case a.Failure != nil:
-		f.Status = 0
+		f.Status, f.Peer = 0, ""
 	case a.ID != nil:
 		f.ID, f.Data = a.ID[:], a.Data
 	default:
