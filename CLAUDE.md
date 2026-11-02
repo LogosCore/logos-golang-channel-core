@@ -61,6 +61,8 @@ Profiles define how canonical fields map to/from transport-specific locations. A
 
 ### Control Plane & Errors
 
+- **`pkg/connclient`** — connection sockets to core (`/api/channel/connection`): one WebSocket per persistent minion connection, frames both ways, pings.
+- **`pkg/linkclient`** — the control link (`/api/channel/link`): `Run` keeps one WebSocket per channel instance open (403 until registered; reopens backing off 1s to 30s), takes core's `call` frames, runs the channel's `Handler` for each (several at once, bounded by `MaxCalls`, each within its deadline) and answers by request id; `open` is answered with a failure until `bind-persistent` is built. `Answer` is a minion message (id and sealed data, unpacked from the channel's transport), something else that answered (status and excerpt), or a `Fail`.
 - **`pkg/channel`** — `Run(ctx, Config)` is module-core's `module.Run` with module_type `channel` (defaulted; any other is refused), plus `Config.Connection`: the minion connection schema, validated and declared at registration under `connection` (`WithConnection` is the lifecycle option). `RPCQueue(instance)` is `logos.channel.rpc.<instance>`. Management, lifecycle, log streaming and logging come from module-core's packages directly.
 - **`pkg/errors`** — channel error codes on module-core's typed error (`Error`, `New`, `Wrap`, `Code` are aliases). Use `coreerrors.New()` / `coreerrors.Wrap()` for consistency. Extract codes with `coreerrors.Code(err)`.
 

@@ -1,0 +1,163 @@
+package linkclient
+
+import (
+	"bytes"
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/coder/websocket"
+	"github.com/logoscore/logos-golang-protocol/protocol"
+)
+
+// A fake core: it refuses the first handshake (not registered yet), then
+// on each link sends the frames of round, reads as many answers and closes
+// the link, so the client opens another.
+func fakeCore(t *testing.T, round []protocol.LinkFrame, answers chan<- protocol.LinkFrame, links *atomic.Int32) *httptest.Server {
+	t.Helper()
+	var refused atomic.Bool
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != protocol.LinkPath || r.Header.Get(protocol.HeaderChannelInstance) != "http-1" {
+			http.Error(w, "bad", http.StatusBadRequest)
+			return
+		}
+		if !refused.Swap(true) {
+			http.Error(w, "not registered", http.StatusForbidden)
+			return
+		}
+		ws, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = ws.CloseNow() }()
+		links.Add(1)
+		ctx := r.Context()
+		for _, f := range round {
+			b, err := protocol.EncodeLinkFrame(f)
+			if err != nil {
+				t.Errorf("encode: %v", err)
+				return
+			}
+			if err := ws.Write(ctx, websocket.MessageBinary, b); err != nil {
+				return
+			}
+		}
+		for range round {
+			_, b, err := ws.Read(ctx)
+			if err != nil {
+				return
+			}
+			f, err := protocol.DecodeLinkFrame(b)
+			if err != nil {
+				t.Errorf("answer: %v", err)
+				return
+			}
+			answers <- f
+		}
+		_ = ws.Close(websocket.StatusNormalClosure, "")
+	}))
+}
+
+func TestLink(t *testing.T) {
+	id := bytes.Repeat([]byte{9}, 16)
+	round := []protocol.LinkFrame{
+		{Type: protocol.LinkCall, Request: 1, Values: map[string]any{"url": "http://page/ok"}, ID: id, Data: []byte("x")},
+		{Type: protocol.LinkCall, Request: 2, Values: map[string]any{"url": "http://page/404"}, ID: id, Data: []byte("x")},
+		{Type: protocol.LinkCall, Request: 3, Values: map[string]any{"url": "http://page/slow"}, ID: id, Data: []byte("x"), Deadline: 50},
+		{Type: protocol.LinkOpen, Request: 4, Values: map[string]any{"host": "h"}},
+	}
+	answers := make(chan protocol.LinkFrame, 16)
+	var links atomic.Int32
+	core := fakeCore(t, round, answers, &links)
+	defer core.Close()
+
+	handler := func(ctx context.Context, c Call) Answer {
+		switch c.Values["url"] {
+		case "http://page/ok":
+			out := c.ID
+			return Answer{ID: &out, Data: append([]byte("re:"), c.Data...), Status: 200}
+		case "http://page/404":
+			return Answer{Status: 404, Excerpt: []byte("not found")}
+		default:
+			<-ctx.Done()
+			return Fail(protocol.LinkFailTimeout, "no answer in %s", c.Deadline)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var ups atomic.Int32
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Options{BaseURL: core.URL, Instance: "http-1", Handler: handler,
+			MinBackoff: 10 * time.Millisecond, MaxBackoff: 20 * time.Millisecond,
+			OnState: func(up bool) {
+				if up {
+					ups.Add(1)
+				}
+			}})
+	}()
+
+	// Two links: the client opens another after core closes the first.
+	for n := 0; n < 2; n++ {
+		got := map[uint64]protocol.LinkFrame{}
+		for range round {
+			select {
+			case f := <-answers:
+				got[f.Request] = f
+			case <-ctx.Done():
+				t.Fatalf("link %d: answers %v", n, got)
+			}
+		}
+		if a := got[1]; string(a.Data) != "re:x" || !bytes.Equal(a.ID, id) || a.Status != 200 {
+			t.Errorf("call answered %+v", a)
+		}
+		if a := got[2]; a.Status != 404 || string(a.Excerpt) != "not found" || a.ID != nil {
+			t.Errorf("not the minion answered %+v", a)
+		}
+		if a := got[3]; a.Failure == nil || a.Failure.Kind != protocol.LinkFailTimeout {
+			t.Errorf("timeout answered %+v", a)
+		}
+		if a := got[4]; a.Failure == nil || a.Failure.Kind != protocol.LinkFailOther {
+			t.Errorf("open answered %+v", a)
+		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if links.Load() < 2 || ups.Load() < 2 {
+		t.Fatalf("links %d, ups %d", links.Load(), ups.Load())
+	}
+}
+
+func TestAnswerFrame(t *testing.T) {
+	id := [16]byte{1}
+	// A handler's answer that does not hold together goes as a failure.
+	f := answerFrame(5, Answer{ID: &id})
+	if f.Failure == nil || f.Request != 5 {
+		t.Fatalf("an id without data: %+v", f)
+	}
+	// A failure drops a status the handler set.
+	f = answerFrame(6, Answer{Status: 500, Failure: &protocol.LinkFailure{Kind: protocol.LinkFailTLS}})
+	if f.Status != 0 || f.Failure.Kind != protocol.LinkFailTLS {
+		t.Fatalf("failure: %+v", f)
+	}
+	if long := Fail(protocol.LinkFailOther, "%s", string(bytes.Repeat([]byte("é"), 400))); len(long.Failure.Msg) > protocol.MaxLinkFailureMsg {
+		t.Fatalf("message of %d bytes", len(long.Failure.Msg))
+	}
+}
+
+func TestRunRefusesBadOptions(t *testing.T) {
+	if err := Run(context.Background(), Options{BaseURL: "http://core"}); err == nil {
+		t.Error("no handler")
+	}
+	h := func(context.Context, Call) Answer { return Answer{} }
+	for _, base := range []string{"", "ftp://core", "core:8002"} {
+		if err := Run(context.Background(), Options{BaseURL: base, Handler: h}); err == nil {
+			t.Errorf("base %q", base)
+		}
+	}
+}
