@@ -57,6 +57,10 @@ type Call struct {
 	// handler keeps to the shorter of it and its own timeout. The context
 	// a handler gets ends at it.
 	Deadline time.Duration
+	// Keys are ID's keys, for a channel that acts as the minion (an
+	// agentless kind): it opens Data and seals its answer with them. Nil
+	// for any other kind: the channel relays a frame it cannot read.
+	Keys *protocol.LinkKeys
 }
 
 // Answer is what a call reached: exactly one of a minion message (ID and
@@ -99,6 +103,15 @@ type Open struct {
 	// Deadline is how long core waits, 0 when it does not say; the
 	// context an Opener gets ends at it.
 	Deadline time.Duration
+	// Under is the id the minion speaks under on the connection: its
+	// target's open session's id, else its build's (protocol.LinkFrame
+	// Under). Zero when core says none. A channel acting as the minion
+	// (agentless) speaks under it first; one whose minion knows its own
+	// ids leaves it.
+	Under [16]byte
+	// Keys are Under's keys, for a channel that acts as the minion (an
+	// agentless kind); nil for any other kind.
+	Keys *protocol.LinkKeys
 }
 
 // Opener dials a target and, once the minion's connection is up, opens its
@@ -306,10 +319,12 @@ func runOnce(ctx context.Context, u string, o Options, log *slog.Logger) error {
 					wait = DefaultOpenDeadline
 				}
 				octx, ocancel := context.WithTimeout(context.WithoutCancel(lctx), wait)
-				a = o.Opener(octx, Open{Request: f.Request, Values: f.Values, Deadline: deadline})
+				op := Open{Request: f.Request, Values: f.Values, Deadline: deadline, Keys: f.Keys}
+				copy(op.Under[:], f.Under)
+				a = o.Opener(octx, op)
 				ocancel()
 			} else {
-				c := Call{Request: f.Request, Values: f.Values, Data: f.Data, Deadline: deadline}
+				c := Call{Request: f.Request, Values: f.Values, Data: f.Data, Deadline: deadline, Keys: f.Keys}
 				copy(c.ID[:], f.ID)
 				a = o.Handler(cctx, c)
 			}

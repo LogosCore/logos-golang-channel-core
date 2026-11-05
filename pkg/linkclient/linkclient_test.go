@@ -61,10 +61,14 @@ func fakeCore(t *testing.T, round []protocol.LinkFrame, answers chan<- protocol.
 	}))
 }
 
+// testKeys are an agentless call's keys.
+var testKeys = &protocol.LinkKeys{Suite: protocol.CryptoAES256CBCHMACSHA256,
+	Material: protocol.AES256CBCHMACSHA256Material{EncKey: bytes.Repeat([]byte{1}, 32), MACKey: bytes.Repeat([]byte{2}, 32)}}
+
 func TestLink(t *testing.T) {
 	id := bytes.Repeat([]byte{9}, 16)
 	round := []protocol.LinkFrame{
-		{Type: protocol.LinkCall, Request: 1, Values: map[string]any{"url": "http://page/ok"}, ID: id, Data: []byte("x")},
+		{Type: protocol.LinkCall, Request: 1, Values: map[string]any{"url": "http://page/ok"}, ID: id, Data: []byte("x"), Keys: testKeys},
 		{Type: protocol.LinkCall, Request: 2, Values: map[string]any{"url": "http://page/404"}, ID: id, Data: []byte("x")},
 		{Type: protocol.LinkCall, Request: 3, Values: map[string]any{"url": "http://page/slow"}, ID: id, Data: []byte("x"), Deadline: 50},
 		{Type: protocol.LinkOpen, Request: 4, Values: map[string]any{"host": "h"}},
@@ -77,9 +81,15 @@ func TestLink(t *testing.T) {
 	handler := func(ctx context.Context, c Call) Answer {
 		switch c.Values["url"] {
 		case "http://page/ok":
+			if c.Keys == nil || !bytes.Equal(c.Keys.Material.EncKey, testKeys.Material.EncKey) {
+				t.Errorf("a call's keys: %+v", c.Keys)
+			}
 			out := c.ID
 			return Answer{ID: &out, Data: append([]byte("re:"), c.Data...), Status: 200}
 		case "http://page/404":
+			if c.Keys != nil {
+				t.Error("keys on a call that carried none")
+			}
 			return Answer{Status: 404, Excerpt: []byte("not found")}
 		default:
 			<-ctx.Done()
@@ -171,11 +181,13 @@ func TestRunRefusesBadOptions(t *testing.T) {
 	}
 }
 
-// An open goes to the channel's Opener, with its values and request; its
-// answer (the socket up, or why not) goes back by the request id.
+// An open goes to the channel's Opener, with its values, request and the id
+// the minion speaks under; its answer (the socket up, or why not) goes back
+// by the request id.
 func TestOpen(t *testing.T) {
+	under := [16]byte{5, 5, 5}
 	round := []protocol.LinkFrame{
-		{Type: protocol.LinkOpen, Request: 7, Values: map[string]any{"host": "10.0.0.5"}, Deadline: 2000},
+		{Type: protocol.LinkOpen, Request: 7, Values: map[string]any{"host": "10.0.0.5"}, Deadline: 2000, Under: under[:], Keys: testKeys},
 		{Type: protocol.LinkOpen, Request: 8, Values: map[string]any{"host": "nowhere"}},
 	}
 	answers := make(chan protocol.LinkFrame, 4)
@@ -189,7 +201,7 @@ func TestOpen(t *testing.T) {
 		if o.Values["host"] == "nowhere" {
 			return Fail(protocol.LinkFailUnreachable, "no such host")
 		}
-		if o.Request != 7 || o.Deadline != 2*time.Second {
+		if o.Request != 7 || o.Deadline != 2*time.Second || o.Under != under || o.Keys == nil {
 			t.Errorf("open %+v", o)
 		}
 		return Answer{}
