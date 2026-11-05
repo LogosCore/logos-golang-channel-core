@@ -228,3 +228,71 @@ func TestOpen(t *testing.T) {
 		t.Errorf("an open that failed answered %+v", a)
 	}
 }
+
+// A call's and an open's credentials reach the channel by id, as the values
+// name them, and the logins the channel answers with reach core.
+func TestCredentialsAndLogins(t *testing.T) {
+	id := bytes.Repeat([]byte{9}, 16)
+	creds := map[string]protocol.Credential{
+		"k1": {ID: "k1", Type: protocol.CredentialTypeKey, Username: "root", Key: "KEY"},
+		"p1": {ID: "p1", Type: protocol.CredentialTypePlaintext, Username: "admin", Password: "pw"},
+	}
+	values := map[string]any{"host": "h", "credentials": []any{"k1", "p1"}}
+	round := []protocol.LinkFrame{
+		{Type: protocol.LinkCall, Request: 1, Values: values, ID: id, Data: []byte("x"), Keys: testKeys, Credentials: creds},
+		{Type: protocol.LinkOpen, Request: 2, Values: values, Under: id, Keys: testKeys, Credentials: creds},
+	}
+	answers := make(chan protocol.LinkFrame, 8)
+	var links atomic.Int32
+	core := fakeCore(t, round, answers, &links)
+	defer core.Close()
+
+	field := protocol.FieldSpec{Key: "credentials", Type: protocol.FieldCredentialList}
+	logins := func(given map[string]protocol.Credential, v any) []protocol.LinkLogin {
+		list, err := protocol.FieldCredentials(field, v, given)
+		if err != nil || len(list) != 2 || list[0].Key != "KEY" || list[1].Password != "pw" {
+			t.Errorf("credentials: %+v %v", list, err)
+			return nil
+		}
+		// The key refused, the password taken.
+		return []protocol.LinkLogin{{Credential: list[0].ID}, {Credential: list[1].ID, Accepted: true}}
+	}
+	handler := func(_ context.Context, c Call) Answer {
+		out := c.ID
+		return Answer{ID: &out, Data: []byte("re"), Status: 200, Logins: logins(c.Credentials, c.Values["credentials"])}
+	}
+	opener := func(_ context.Context, o Open) Answer {
+		a := Fail(protocol.LinkFailLogin, "both refused")
+		a.Logins = []protocol.LinkLogin{{Credential: "k1"}, {Credential: "p1"}}
+		if l := logins(o.Credentials, o.Values["credentials"]); len(l) != 2 {
+			return Fail(protocol.LinkFailOther, "no credentials")
+		}
+		return a
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Options{BaseURL: core.URL, Instance: "http-1", Handler: handler, Opener: opener,
+			MinBackoff: 10 * time.Millisecond, MaxBackoff: 20 * time.Millisecond})
+	}()
+	got := map[uint64]protocol.LinkFrame{}
+	for range round {
+		select {
+		case f := <-answers:
+			got[f.Request] = f
+		case <-ctx.Done():
+			t.Fatalf("answers %v", got)
+		}
+	}
+	if a := got[1]; len(a.Logins) != 2 || a.Logins[0].Accepted || !a.Logins[1].Accepted || a.Logins[1].Credential != "p1" {
+		t.Errorf("the call's logins: %+v", a.Logins)
+	}
+	if a := got[2]; a.Failure == nil || a.Failure.Kind != protocol.LinkFailLogin || len(a.Logins) != 2 {
+		t.Errorf("the open's logins: %+v", a)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}

@@ -61,6 +61,9 @@ type Call struct {
 	// agentless kind): it opens Data and seals its answer with them. Nil
 	// for any other kind: the channel relays a frame it cannot read.
 	Keys *protocol.LinkKeys
+	// Credentials are the credentials Values name by id (credential
+	// fields), by id: protocol.FieldCredentials reads a field's.
+	Credentials map[string]protocol.Credential
 }
 
 // Answer is what a call reached: exactly one of a minion message (ID and
@@ -77,6 +80,11 @@ type Answer struct {
 	// without a lookup of its own (dialed directly, or the target an IP
 	// address): the minion's external address. Not sent with a failure.
 	Peer string
+	// Logins are how the credentials the channel tried fared, in the order
+	// it tried them (a login refused, the one taken): core marks the one
+	// that worked, and notes the refused ones on the target. With a
+	// failure or without one.
+	Logins []protocol.LinkLogin
 }
 
 // Fail is an Answer saying the call reached nothing.
@@ -112,6 +120,8 @@ type Open struct {
 	// Keys are Under's keys, for a channel that acts as the minion (an
 	// agentless kind); nil for any other kind.
 	Keys *protocol.LinkKeys
+	// Credentials are the credentials Values name by id, as a Call's.
+	Credentials map[string]protocol.Credential
 }
 
 // Opener dials a target and, once the minion's connection is up, opens its
@@ -319,12 +329,12 @@ func runOnce(ctx context.Context, u string, o Options, log *slog.Logger) error {
 					wait = DefaultOpenDeadline
 				}
 				octx, ocancel := context.WithTimeout(context.WithoutCancel(lctx), wait)
-				op := Open{Request: f.Request, Values: f.Values, Deadline: deadline, Keys: f.Keys}
+				op := Open{Request: f.Request, Values: f.Values, Deadline: deadline, Keys: f.Keys, Credentials: f.Credentials}
 				copy(op.Under[:], f.Under)
 				a = o.Opener(octx, op)
 				ocancel()
 			} else {
-				c := Call{Request: f.Request, Values: f.Values, Data: f.Data, Deadline: deadline, Keys: f.Keys}
+				c := Call{Request: f.Request, Values: f.Values, Data: f.Data, Deadline: deadline, Keys: f.Keys, Credentials: f.Credentials}
 				copy(c.ID[:], f.ID)
 				a = o.Handler(cctx, c)
 			}
@@ -338,7 +348,8 @@ func runOnce(ctx context.Context, u string, o Options, log *slog.Logger) error {
 // answerFrame is a's frame for request; an answer that would not encode
 // (a handler's mistake) goes as a failure.
 func answerFrame(request uint64, a Answer) protocol.LinkFrame {
-	f := protocol.LinkFrame{Type: protocol.LinkAnswer, Request: request, Status: a.Status, Failure: a.Failure, Peer: a.Peer}
+	f := protocol.LinkFrame{Type: protocol.LinkAnswer, Request: request, Status: a.Status, Failure: a.Failure, Peer: a.Peer,
+		Logins: a.Logins}
 	switch {
 	case a.Failure != nil:
 		f.Status, f.Peer = 0, ""
@@ -353,6 +364,9 @@ func answerFrame(request uint64, a Answer) protocol.LinkFrame {
 	if err := f.Validate(); err != nil {
 		return protocol.LinkFrame{Type: protocol.LinkAnswer, Request: request,
 			Failure: &protocol.LinkFailure{Kind: protocol.LinkFailOther, Msg: "the channel's answer: " + err.Error()}}
+	}
+	if len(f.Logins) == 0 {
+		f.Logins = nil
 	}
 	return f
 }
