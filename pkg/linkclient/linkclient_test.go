@@ -296,3 +296,57 @@ func TestCredentialsAndLogins(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A call and an open to an agentless kind hand the handler the session's
+// acting task, args and all.
+func TestActing(t *testing.T) {
+	id, task := bytes.Repeat([]byte{9}, 16), bytes.Repeat([]byte{4}, 16)
+	acting := &protocol.LinkActing{Task: task, Cmd: 10, Args: protocol.Args{1: "root", 2: uint64(1)}}
+	round := []protocol.LinkFrame{
+		{Type: protocol.LinkCall, Request: 1, Values: map[string]any{"host": "h"}, ID: id, Data: []byte("x"), Keys: testKeys, Acting: acting},
+		{Type: protocol.LinkOpen, Request: 2, Values: map[string]any{"host": "h"}, Under: id, Keys: testKeys, Acting: acting},
+	}
+	answers := make(chan protocol.LinkFrame, 8)
+	var links atomic.Int32
+	core := fakeCore(t, round, answers, &links)
+	defer core.Close()
+	seen := make(chan string, 2)
+	check := func(kind string, a *protocol.LinkActing) {
+		defer func() { seen <- kind }()
+		if a == nil {
+			t.Errorf("%s: no acting", kind)
+			return
+		}
+		if user, _ := protocol.ArgString(a.Args, 1); !bytes.Equal(a.Task, task) || a.Cmd != 10 || user != "root" {
+			t.Errorf("%s: acting %+v", kind, a)
+		}
+	}
+	handler := func(_ context.Context, c Call) Answer {
+		check("call", c.Acting)
+		out := c.ID
+		return Answer{ID: &out, Data: []byte("re"), Status: 200}
+	}
+	opener := func(_ context.Context, o Open) Answer {
+		check("open", o.Acting)
+		return Fail(protocol.LinkFailOther, "no")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Options{BaseURL: core.URL, Instance: "http-1", Handler: handler, Opener: opener,
+			MinBackoff: 10 * time.Millisecond, MaxBackoff: 20 * time.Millisecond})
+	}()
+	for range round {
+		select {
+		case <-answers:
+		case <-ctx.Done():
+			t.Fatal("no answers")
+		}
+	}
+	if len(seen) != 2 {
+		t.Errorf("handlers saw %d frames", len(seen))
+	}
+	cancel()
+	<-done
+}

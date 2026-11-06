@@ -64,6 +64,12 @@ type Call struct {
 	// Credentials are the credentials Values name by id (credential
 	// fields), by id: protocol.FieldCredentials reads a field's.
 	Credentials map[string]protocol.Credential
+	// Acting, on a call to an agentless kind, is the task whose identity is
+	// in effect for the session the call goes under (a become): its id,
+	// command and args, credentials resolved. A channel acting as the
+	// minion keeps nothing between calls, so it takes it up again from
+	// here; nil when the session runs as its process.
+	Acting *protocol.LinkActing
 }
 
 // Answer is what a call reached: exactly one of a minion message (ID and
@@ -122,6 +128,9 @@ type Open struct {
 	Keys *protocol.LinkKeys
 	// Credentials are the credentials Values name by id, as a Call's.
 	Credentials map[string]protocol.Credential
+	// Acting is the session's acting task, as a Call's: what the
+	// connection takes up again as it opens.
+	Acting *protocol.LinkActing
 }
 
 // Opener dials a target and, once the minion's connection is up, opens its
@@ -329,12 +338,14 @@ func runOnce(ctx context.Context, u string, o Options, log *slog.Logger) error {
 					wait = DefaultOpenDeadline
 				}
 				octx, ocancel := context.WithTimeout(context.WithoutCancel(lctx), wait)
-				op := Open{Request: f.Request, Values: f.Values, Deadline: deadline, Keys: f.Keys, Credentials: f.Credentials}
+				op := Open{Request: f.Request, Values: f.Values, Deadline: deadline, Keys: f.Keys, Credentials: f.Credentials,
+					Acting: f.Acting}
 				copy(op.Under[:], f.Under)
 				a = o.Opener(octx, op)
 				ocancel()
 			} else {
-				c := Call{Request: f.Request, Values: f.Values, Data: f.Data, Deadline: deadline, Keys: f.Keys, Credentials: f.Credentials}
+				c := Call{Request: f.Request, Values: f.Values, Data: f.Data, Deadline: deadline, Keys: f.Keys, Credentials: f.Credentials,
+					Acting: f.Acting}
 				copy(c.ID[:], f.ID)
 				a = o.Handler(cctx, c)
 			}
