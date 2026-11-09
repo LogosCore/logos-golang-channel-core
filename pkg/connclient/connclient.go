@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/logoscore/logos-golang-module-core/pkg/coretls"
 	"github.com/logoscore/logos-golang-protocol/protocol"
 )
 
@@ -43,7 +44,8 @@ type Options struct {
 	// OpenRequest is the control link's open this socket answers (a
 	// bind-persistent connection's: the request id core gave it).
 	OpenRequest uint64
-	// HTTPClient makes the handshake; http.DefaultClient when nil.
+	// HTTPClient makes the handshake; when nil, module-core's
+	// coretls.Client: core's TLS trust from the environment.
 	HTTPClient *http.Client
 	// MaxFrame caps a frame read from core; DefaultMaxFrame when zero.
 	MaxFrame int64
@@ -78,7 +80,16 @@ func Dial(ctx context.Context, o Options) (*Conn, error) {
 	if o.OpenRequest != 0 {
 		h.Set(protocol.HeaderOpenRequest, strconv.FormatUint(o.OpenRequest, 10))
 	}
-	ws, resp, err := websocket.Dial(ctx, u, &websocket.DialOptions{HTTPClient: o.HTTPClient, HTTPHeader: h})
+	hc := o.HTTPClient
+	if hc == nil {
+		// The process's client for core: its TLS trust from the
+		// environment (module-core's coretls).
+		var err error
+		if hc, err = coretls.Client(); err != nil {
+			return nil, err
+		}
+	}
+	ws, resp, err := websocket.Dial(ctx, u, &websocket.DialOptions{HTTPClient: hc, HTTPHeader: h})
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
 	}

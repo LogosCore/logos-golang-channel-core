@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	coreerrors "github.com/logoscore/logos-golang-channel-core/v3/pkg/errors"
+	"github.com/logoscore/logos-golang-module-core/pkg/coretls"
 	protocol "github.com/logoscore/logos-golang-protocol/protocol"
 )
 
@@ -23,7 +24,9 @@ type HTTPClient struct {
 	BaseURL string
 	// Endpoint overrides protocol.SyncPath.
 	Endpoint string
-	Client   *http.Client
+	// Client makes the requests; when nil, module-core's coretls.Client:
+	// core's TLS trust from the environment.
+	Client *http.Client
 	// MaxReplyBytes caps a reply's body; DefaultMaxReplyBytes when zero.
 	MaxReplyBytes int64
 }
@@ -57,7 +60,12 @@ func (c *HTTPClient) Sync(ctx context.Context, in protocol.InboundMinionMessage)
 
 	hc := c.Client
 	if hc == nil {
-		hc = http.DefaultClient
+		// The process's client for core: its TLS trust from the
+		// environment (module-core's coretls).
+		var err error
+		if hc, err = coretls.Client(); err != nil {
+			return protocol.OutboundMinionMessage{}, coreerrors.Wrap(coreerrors.CodeInvalidInput, "core TLS settings", err)
+		}
 	}
 
 	resp, err := hc.Do(req)
