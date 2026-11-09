@@ -4,8 +4,8 @@ go 1.25.7
 
 require (
 	github.com/coder/websocket v1.8.15
-	github.com/logoscore/logos-golang-module-core v0.2.42
-	github.com/logoscore/logos-golang-protocol v0.47.0
+	github.com/logoscore/logos-golang-module-core v0.2.43
+	github.com/logoscore/logos-golang-protocol v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
