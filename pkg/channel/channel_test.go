@@ -42,7 +42,7 @@ func TestRunDefaultsModuleType(t *testing.T) {
 		SchemaVersion: protocol.ConnectionSchemaV2,
 		Version:       1,
 		Kinds: map[string]protocol.ConnectionKind{protocol.KindReverseCall: {
-			Fields: []protocol.FieldSpec{{Key: "base_url", Type: protocol.FieldURL, Required: true}},
+			Fields: []protocol.FieldSpec{{Key: "base_url", Num: 1, Type: protocol.FieldURL, Required: true}},
 		}},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
