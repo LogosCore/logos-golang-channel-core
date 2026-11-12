@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Go SDK (`github.com/logoscore/logos-golang-channel-core/v3`) for building Logos channel modules. Channel modules bridge arbitrary transports (HTTP, DNS, etc.) to the Logos server while remaining plaintext-blind — they never decrypt agent payloads.
+Go SDK (`github.com/logoscore/logos-golang-channel-core/v3`) for building Logos channel modules. Channel modules carry minion traffic between a transport (HTTP, TCP, DNS, etc.) and core while remaining plaintext-blind: they relay sealed frames and never open a minion's message. The one exception is an agentless channel (the SSH module), which acts as the minion with the keys core gives it per call and open (`linkclient`'s `Keys`).
 
 Builds on `github.com/logoscore/logos-golang-module-core`, which holds the control plane every module type shares (`lifecycle`, `module`, `mgmt`, `logstream`, `logging`, base `errors`). Only channel-specific code belongs here. Depends on `github.com/logoscore/logos-golang-protocol` for canonical message types and validation.
 
@@ -19,20 +19,21 @@ go vet ./...          # static analysis
 golangci-lint run ./... # lint, as CI runs it
 ```
 
-No Makefile or task runner — use standard Go tooling. Go version: 1.25.7. CI (`.github/workflows/ci.yml`, the same file in protocol, module-core, channel-core, factory-core and the HTTP channel) runs `go test ./...` and golangci-lint v2.13.2 with its default linters (no config file) on pushes to `main`, on `v*` tags and on pull requests. The code is kept at 0 issues: fix a finding (an explicit `_ =` with the reason, for a Close whose error says nothing) rather than excluding it.
+No Makefile or task runner — use standard Go tooling. Go version: 1.25.7. CI (`.github/workflows/ci.yml`, the same file in module-core, channel-core, factory-core and the HTTP, TCP and SSH modules; the protocol's adds 32-bit builds) runs `go test ./...` and golangci-lint v2.13.2 with its default linters (no config file) on pushes to `main`, on `v*` tags and on pull requests. The code is kept at 0 issues: fix a finding (an explicit `_ =` with the reason, for a Close whose error says nothing) rather than excluding it.
 
-### Documentation Submodule
+### Documentation
 
-Upstream docs and specs live in a git submodule at `docs/logos-docs` (from `https://github.com/logoscore/logos-docs`). Fetch/update it when you need reference documentation:
-
-```bash
-git submodule update --init --recursive  # first clone or after a fresh checkout
-git submodule update --remote docs/logos-docs  # pull latest docs
-```
+The contracts this SDK implements are on the docs site (https://logoscore.github.io/logos-docs/, sources in the sibling checkout `../logos-docs`): Channel ↔ Core: HTTP Sync (`syncclient`), Connections (`connclient`, `linkclient`), Agentless Channels, Minion Connection (the schema `pkg/channel` declares), and the guide Writing a Channel, which walks through building one with these packages.
 
 ## Architecture
 
-### Core Pipeline
+The packages a channel uses are under Control Plane & Errors below: `pkg/channel` (its session with core), `pkg/syncclient`, `pkg/connclient` and `pkg/linkclient` (the three paths to core), `pkg/errors`. The HTTP, TCP, SSH and Dumbo channels use those alone.
+
+### The profile layer (no channel uses it today)
+
+`pkg/runtime`, `pkg/profile`, `pkg/matcher`, `pkg/transform`, `pkg/resolver`, `pkg/cache` and `pkg/noise` map a transport's fields to and from the sync call by declarative profiles. They are kept and tested, but no channel in the Logos repositories imports them: the HTTP channel packs its own wire format and calls `syncclient` directly.
+
+#### Core Pipeline
 
 The runtime orchestrates a single request through:
 
@@ -43,13 +44,13 @@ The runtime orchestrates a single request through:
 
 Two entrypoints: `runtime.Handle()` (basic) and `runtime.HandleWithProfile()` (profile-aware with field mapping and transforms).
 
-### Key Interfaces (pkg/runtime/types.go)
+#### Key Interfaces (pkg/runtime/types.go)
 
 - **`TransportEnvelope`** — channel adapters implement this (`GetField`, `SetField`, `SourceKey`). Each transport (HTTP handler, bot webhook, etc.) wraps its native request in this interface.
 - **`SyncClient`** — abstraction over Logos communication. `pkg/syncclient.HTTPClient` is the concrete implementation (POST to `/api/channel/sync`).
 - **`ProfileStore`** — persistence for transposition profiles. Callers provide their own implementation (in-memory, database, etc.).
 
-### Transposition Profiles
+#### Transposition Profiles
 
 Profiles define how canonical fields map to/from transport-specific locations. A channel can have multiple profiles; exactly one enabled profile must be the default fallback.
 
@@ -58,6 +59,7 @@ Profiles define how canonical fields map to/from transport-specific locations. A
 - **`pkg/transform`** — reversible transform pipeline on mapped fields (base64, base64url, prefix, suffix, replace, url_encode/url_decode). `ApplyEncode` runs forward; `ApplyDecode` runs in reverse order for roundtrip correctness.
 - **`pkg/resolver`** — extracts values from transport input by `"location:key"` refs (body, header, query, cookie)
 - **`pkg/cache`** — thread-safe TTL cache mapping source keys to profile IDs (source affinity)
+- **`pkg/noise`** — generates the noise key-value pairs a profile declares (random values added to a transport's fields)
 
 ### Control Plane & Errors
 

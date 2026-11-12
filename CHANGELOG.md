@@ -1,8 +1,71 @@
 # Changelog
 
+Patch releases that only take new tags of `logos-golang-protocol` and
+`logos-golang-module-core` (v3.2.1 to v3.2.19, v3.4.1, v3.5.1 to v3.5.4,
+v3.6.1, v3.8.1 to v3.8.13, v3.9.1, v3.9.2) are not listed: their tags say
+which.
+
 ## v3.9.0
 
 - **Core over HTTPS with a certificate no system trusts**: the sync, connection and link clients given no `http.Client` use module-core's `coretls.Client()` (v0.3.0): `LOGOS_CORE_CA_FILE`, `LOGOS_CORE_CERT_SHA256`, `LOGOS_CORE_TLS_INSECURE`.
+
+## v3.8.0
+
+- **`linkclient`: a call's and an open's acting.** `Call.Acting` and
+  `Open.Acting`: the task whose identity is in effect for the session (a
+  become), as core gives it to agentless kinds. Requires
+  `logos-golang-protocol` v0.35.0 and `logos-golang-module-core` v0.2.30.
+
+## v3.7.0
+
+- **`linkclient`: credentials and logins.** `Call.Credentials` and
+  `Open.Credentials`: the credentials the call's or open's values name
+  (credential fields), by id (`protocol.FieldCredentials` reads a field's).
+  `Answer.Logins`: how each credential the channel tried fared (core marks
+  the one taken valid and notes each on the target). Requires
+  `logos-golang-protocol` v0.34.0 and `logos-golang-module-core` v0.2.29.
+
+## v3.6.0
+
+- **Keys for agentless kinds.** `linkclient.Call.Keys`: the keys of the
+  call's id, on a call to an agentless kind (a channel that acts as the
+  minion opens core's message and seals its answer with them).
+  `Open.Under` and `Open.Keys`: the id the minion speaks under on the new
+  connection, with its keys for an agentless kind. Requires
+  `logos-golang-protocol` v0.32.0 and `logos-golang-module-core` v0.2.27.
+
+## v3.5.0
+
+- **`linkclient` opens** (`bind-persistent`): an `Opener` runs core's open
+  frames (none: a failure), each within its deadline (30s by default).
+- `linkclient.Answer.Peer`: the IP address the channel connected to; never
+  sent with a failure.
+- `connclient.Options.OpenRequest` names the open a `bind-persistent`
+  socket answers (`Logos-Open-Request`). Requires `logos-golang-protocol`
+  v0.26.0.
+
+## v3.4.0
+
+- **`pkg/linkclient`, the control link** (`/api/channel/link`), for
+  `bind-call` channels: keeps a channel instance's WebSocket to core open
+  (403 until registered; it reopens, backing off), runs the channel's
+  `Handler` for each call core sends, several at once, each within its
+  deadline, and answers by request id. Requires `logos-golang-protocol`
+  v0.24.0 and `logos-golang-module-core` v0.2.21.
+
+## v3.3.1
+
+- golangci-lint at 0 issues (behaviour unchanged), and CI runs it beside the
+  tests.
+
+## v3.3.0
+
+- **`pkg/connclient`, connection sockets to core**
+  (`/api/channel/connection`): one WebSocket per persistent minion
+  connection, its frames carried both ways; `Dial` says the instance, the
+  kind and the minion's address, and pings core's end. Requires
+  `logos-golang-protocol` v0.23.0 (connection schema v2, fields per kind)
+  and `logos-golang-module-core` v0.2.20.
 
 ## v3.2.0
 
