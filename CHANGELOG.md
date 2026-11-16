@@ -2,7 +2,7 @@
 
 Patch releases that only take new tags of `logos-golang-protocol` and
 `logos-golang-module-core` (v3.2.1 to v3.2.19, v3.4.1, v3.5.1 to v3.5.4,
-v3.6.1, v3.8.1 to v3.8.13, v3.9.1 to v3.9.3) are not listed: their tags say
+v3.6.1, v3.8.1 to v3.8.13, v3.9.1 to v3.9.4) are not listed: their tags say
 which.
 
 ## v3.9.0
